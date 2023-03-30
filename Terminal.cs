@@ -8,6 +8,11 @@ namespace DevelopersHub.RealtimeNetworking.Server
 
         #region Update
         public const int updatesPerSecond = 30;
+        public static void Start()
+        {
+
+        }
+
         public static void Update()
         {
             
@@ -16,15 +21,17 @@ namespace DevelopersHub.RealtimeNetworking.Server
 
         #region Connection
         public const int maxPlayers = 100000;
+        public static int onlinePlayers = 0;
         public const int port = 5555;
+
         public static void OnClientConnected(int id, string ip)
         {
-            
+            onlinePlayers++;
         }
 
         public static void OnClientDisconnected(int id, string ip)
         {
-            
+            onlinePlayers--;
         }
         #endregion
 

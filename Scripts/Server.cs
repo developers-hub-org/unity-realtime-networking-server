@@ -25,7 +25,6 @@ namespace DevelopersHub.RealtimeNetworking.Server
             {
                 clients.Add(i, new Client(i));
             }
-
             packetHandlers = new Dictionary<int, PacketHandler>()
             {
                 { (int)Packet.ID.STRING, Receiver.ReceiveString },
@@ -42,13 +41,12 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 { (int)Packet.ID.NULL, Receiver.ReceiveNull },
                 { (int)Packet.ID.CUSTOM, Receiver.ReceiveCustom },
             };
-
             tcpListener = new TcpListener(IPAddress.Any, Port);
             tcpListener.Start();
             tcpListener.BeginAcceptTcpClient(OnConnectedTCP, null);
             udpListener = new UdpClient(Port);
             udpListener.BeginReceive(OnConnectedUDP, null);
-            Console.WriteLine("Server started on {0} and port {1}.", Tools.GetIP(AddressFamily.InterNetwork), Port);
+            Terminal.Start();
         }
 
         private static void OnConnectedTCP(IAsyncResult result)
@@ -100,7 +98,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
             }
             catch (Exception ex)
             {
-                Console.WriteLine("Error receiving UDP data: {0}", ex.Message);
+                Tools.LogError(ex.Message, ex.StackTrace);
             }
         }
 
@@ -115,7 +113,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
             }
             catch (Exception ex)
             {
-                Console.WriteLine("Error sending data to {0} via UDP: {1}", clientEndPoint, ex.Message);
+                Tools.LogError(ex.Message, ex.StackTrace);
             }
         }
 

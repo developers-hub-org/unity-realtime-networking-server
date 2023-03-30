@@ -64,7 +64,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine("Error sending data to client id {0} via TCP: {1}", id, ex.Message);
+                    Tools.LogError(ex.Message, ex.StackTrace);
                 }
             }
 
@@ -85,7 +85,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine("Error receiving TCP data: {0}", ex.Message);
+                    Tools.LogError(ex.Message, ex.StackTrace);
                     Server.clients[id].Disconnect();
                 }
             }
@@ -107,10 +107,17 @@ namespace DevelopersHub.RealtimeNetworking.Server
                     byte[] _packetBytes = receivedData.ReadBytes(length);
                     Threading.ExecuteOnMainThread(() =>
                     {
-                        using (Packet _packet = new Packet(_packetBytes))
+                        try
                         {
-                            int _packetId = _packet.ReadInt();
-                            Server.packetHandlers[_packetId](id, _packet);
+                            using (Packet _packet = new Packet(_packetBytes))
+                            {
+                                int _packetId = _packet.ReadInt();
+                                Server.packetHandlers[_packetId](id, _packet);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Tools.LogError(ex.Message, ex.StackTrace);
                         }
                     });
                     length = 0;
@@ -166,10 +173,17 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 byte[] _packetBytes = _packetData.ReadBytes(_packetLength);
                 Threading.ExecuteOnMainThread(() =>
                 {
-                    using (Packet _packet = new Packet(_packetBytes))
+                    try
                     {
-                        int _packetId = _packet.ReadInt();
-                        Server.packetHandlers[_packetId](id, _packet);
+                        using (Packet _packet = new Packet(_packetBytes))
+                        {
+                            int _packetId = _packet.ReadInt();
+                            Server.packetHandlers[_packetId](id, _packet);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Tools.LogError(ex.Message, ex.StackTrace);
                     }
                 });
             }

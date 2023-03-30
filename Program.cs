@@ -11,11 +11,19 @@ namespace DevelopersHub.RealtimeNetworking.Server
 
         static void Main(string[] args)
         {
-            Console.Title = "Server Console";
-            isRunning = true;
-            Thread mainThread = new Thread(new ThreadStart(MainThread));
-            mainThread.Start();
-            Server.Start(Terminal.maxPlayers, Terminal.port);
+            AppDomain.CurrentDomain.UnhandledException += GlobalUnhandledExceptionHandler;
+            try
+            {
+                Console.Title = "Server Console";
+                isRunning = true;
+                Thread mainThread = new Thread(new ThreadStart(MainThread));
+                mainThread.Start();
+                Server.Start(Terminal.maxPlayers, Terminal.port);
+            }
+            catch (Exception ex)
+            {
+                Tools.LogError(ex.Message, ex.StackTrace);
+            }
         }
 
         private static void MainThread()
@@ -30,10 +38,17 @@ namespace DevelopersHub.RealtimeNetworking.Server
                     nextLoop = nextLoop.AddMilliseconds(updatePeriod);
                     if (nextLoop > DateTime.Now)
                     {
-                        Thread.Sleep(nextLoop - DateTime.Now);
+                        Thread.Sleep((int)Math.Clamp((nextLoop - DateTime.Now).TotalMilliseconds, 0, Int32.MaxValue));
                     }
                 }
             }
+        }
+
+        private static void GlobalUnhandledExceptionHandler(object sender, UnhandledExceptionEventArgs e)
+        {
+            Exception ex = default(Exception);
+            ex = (Exception)e.ExceptionObject;
+            Tools.LogError(ex.Message, ex.StackTrace, "Unhandled");
         }
 
     }
