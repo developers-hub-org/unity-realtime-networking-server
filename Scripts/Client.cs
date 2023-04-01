@@ -196,11 +196,22 @@ namespace DevelopersHub.RealtimeNetworking.Server
 
         private void Disconnect()
         {
-            Console.WriteLine("{0} has been disconnected.", tcp.socket.Client.RemoteEndPoint);
-            IPEndPoint ip = tcp.socket.Client.RemoteEndPoint as IPEndPoint;
-            Terminal.OnClientDisconnected(id, ip.Address.ToString());
-            tcp.Disconnect();
-            udp.Disconnect();
+            if (tcp.socket != null)
+            {
+                Console.WriteLine("Client with IP {0} has been disconnected.", tcp.socket.Client.RemoteEndPoint);
+                IPEndPoint ip = tcp.socket.Client.RemoteEndPoint as IPEndPoint;
+                Terminal.OnClientDisconnected(id, ip.Address.ToString());
+                tcp.Disconnect();
+            }
+            else
+            {
+                Console.WriteLine("Client with unkown IP has been disconnected.");
+                Terminal.OnClientDisconnected(id, "unknown");
+            }
+            if (udp.endPoint != null)
+            {
+                udp.Disconnect();
+            }
         }
 
     }
