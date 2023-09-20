@@ -151,5 +151,66 @@ namespace DevelopersHub.RealtimeNetworking.Server
         */
         #endregion
 
+        #region Sqlite
+        /*
+        private const string _sqliteDatabasePath = @"C:\database.db";
+
+        public static void Demo_Sqlite_1()
+        {
+            try
+            {
+                using (var connection = new SqliteConnection("Data Source = " + _sqliteDatabasePath))
+                {
+                    connection.Open();
+                    var command = connection.CreateCommand();
+                    command.CommandText = @"
+                    Update accounts
+                    SET age = 30
+                    WHERE id = $id
+                    ";
+                    command.Parameters.AddWithValue("$id", 123);
+                    command.ExecuteNonQuery();
+                    connection.Close();
+                }
+            }
+            catch (Exception)
+            {
+
+            }
+        }
+
+        public static void Demo_Sqlite_2()
+        {
+            try
+            {
+                using (var connection = new SqliteConnection("Data Source = " + _sqliteDatabasePath))
+                {
+                    connection.Open();
+                    var command = connection.CreateCommand();
+                    command.CommandText = @"
+                    SELECT name
+                    FROM accounts
+                    WHERE id = $id
+                    ";
+                    command.Parameters.AddWithValue("$id", 123);
+                    using (var reader = command.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            var name = reader.GetString(0);
+                            Console.WriteLine($"Hello, {name}!");
+                        }
+                    }
+                    connection.Close();
+                }
+            }
+            catch (Exception)
+            {
+
+            }
+        }
+        */
+        #endregion
+
     }
 }
