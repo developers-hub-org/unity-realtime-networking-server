@@ -13,6 +13,8 @@ namespace DevelopersHub.RealtimeNetworking.Server
         public UDP udp;
         public string sendToken = "xxxxx";
         public string receiveToken = "xxxxx";
+        public int accountID = -1;
+        public string ipAddress = "000.0.0.000";
 
         public Client(int _clientId)
         {
@@ -200,12 +202,20 @@ namespace DevelopersHub.RealtimeNetworking.Server
             {
                 Console.WriteLine("Client with IP {0} has been disconnected.", tcp.socket.Client.RemoteEndPoint);
                 IPEndPoint ip = tcp.socket.Client.RemoteEndPoint as IPEndPoint;
+                if (Terminal.autoManage)
+                {
+                    Manager.OnClientDisconnected(id, ip.Address.ToString());
+                }
                 Terminal.OnClientDisconnected(id, ip.Address.ToString());
                 tcp.Disconnect();
             }
             else
             {
                 Console.WriteLine("Client with unkown IP has been disconnected.");
+                if (Terminal.autoManage)
+                {
+                    Manager.OnClientDisconnected(id, "unknown");
+                }
                 Terminal.OnClientDisconnected(id, "unknown");
             }
             if (udp.endPoint != null)

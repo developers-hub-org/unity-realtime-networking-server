@@ -11,6 +11,10 @@ namespace DevelopersHub.RealtimeNetworking.Server
 
         static void Main(string[] args)
         {
+            if (Terminal.autoManage)
+            {
+                Manager.Initialize();
+            }
             AppDomain.CurrentDomain.UnhandledException += GlobalUnhandledExceptionHandler;
             try
             {

@@ -60,6 +60,10 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 {
                     clients[i].tcp.Initialize(client);
                     IPEndPoint ip = client.Client.RemoteEndPoint as IPEndPoint;
+                    if (Terminal.autoManage)
+                    {
+                        Manager.OnClientConnected(i, ip.Address.ToString());
+                    }
                     Terminal.OnClientConnected(i, ip.Address.ToString());
                     return;
                 }
