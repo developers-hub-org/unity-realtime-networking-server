@@ -9,7 +9,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
     {
         public enum ID
         {
-            INITIALIZATION = 1, NULL = 2, CUSTOM = 3, STRING = 4, BOOLEAN = 5, FLOAT = 6, LONG = 7, SHORT = 8, VECTOR3 = 9, QUATERNION = 10, BYTE = 11, BYTES = 12, INTEGER = 13
+            INITIALIZATION = 1, CUSTOM = 2, INTERNAL = 3
         }
 
         private List<byte> buffer;

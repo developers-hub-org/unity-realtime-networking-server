@@ -13,7 +13,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
     static class Tools
     {
 
-        public static readonly string logFolderPath = "C:\\Log\\Realtime Networking\\";
+        public static readonly string logFolderPath = @"C:\Log\Realtime Networking\";
 
         public static void LogError(string message, string trace, string folder = "")
         {

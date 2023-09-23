@@ -27,19 +27,9 @@ namespace DevelopersHub.RealtimeNetworking.Server
             }
             packetHandlers = new Dictionary<int, PacketHandler>()
             {
-                { (int)Packet.ID.STRING, Receiver.ReceiveString },
-                { (int)Packet.ID.BOOLEAN, Receiver.ReceiveBoolean },
-                { (int)Packet.ID.VECTOR3, Receiver.ReceiveVector3 },
-                { (int)Packet.ID.QUATERNION, Receiver.ReceiveQuaternion },
-                { (int)Packet.ID.FLOAT, Receiver.ReceiveFloat },
-                { (int)Packet.ID.INTEGER, Receiver.ReceiveInteger },
-                { (int)Packet.ID.LONG, Receiver.ReceiveLong },
-                { (int)Packet.ID.SHORT, Receiver.ReceiveShort },
-                { (int)Packet.ID.BYTES, Receiver.ReceiveBytes },
-                { (int)Packet.ID.BYTE, Receiver.ReceiveByte },
                 { (int)Packet.ID.INITIALIZATION, Receiver.Initialization },
-                { (int)Packet.ID.NULL, Receiver.ReceiveNull },
                 { (int)Packet.ID.CUSTOM, Receiver.ReceiveCustom },
+                { (int)Packet.ID.INTERNAL, Receiver.ReceiveInternal },
             };
             tcpListener = new TcpListener(IPAddress.Any, Port);
             tcpListener.Start();
@@ -60,11 +50,11 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 {
                     clients[i].tcp.Initialize(client);
                     IPEndPoint ip = client.Client.RemoteEndPoint as IPEndPoint;
+                    Terminal.OnClientConnected(i, ip.Address.ToString());
                     if (Terminal.autoManage)
                     {
                         Manager.OnClientConnected(i, ip.Address.ToString());
                     }
-                    Terminal.OnClientConnected(i, ip.Address.ToString());
                     return;
                 }
             }

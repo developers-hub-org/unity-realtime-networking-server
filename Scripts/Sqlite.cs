@@ -15,10 +15,41 @@ namespace DevelopersHub.RealtimeNetworking.Server
 
         private const string _sqliteDatabasePath = @"C:\Database\realtime_networking.db";
 
+        public static SqliteConnection connection
+        {
+            get
+            {
+                return new SqliteConnection("Data Source = " + _sqliteDatabasePath + "");
+            }
+        }
+
         public static async void Initialize()
         {
             bool created = await CreateDatabase();
-            CreateTables();
+            if(created)
+            {
+                CreateTables();
+            }
+            Start();
+        }
+
+        public static void Start()
+        {
+            try
+            {
+                using (var _connection = connection)
+                {
+                    _connection.Open();
+                    var command = _connection.CreateCommand();
+                    command.CommandText = @"UPDATE accounts SET client_index = -1";
+                    command.ExecuteNonQuery();
+                    _connection.Close();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.Message + "\n" + ex.StackTrace);
+            }
         }
 
         private async static Task<bool> CreateDatabase()
@@ -49,17 +80,23 @@ namespace DevelopersHub.RealtimeNetworking.Server
 
         private static void CreateTables()
         {
-            using (var connection = new SqliteConnection("Data Source = " + _sqliteDatabasePath + ""))
+            using (var _connection = connection)
             {
-                connection.Open();
-                var command = connection.CreateCommand();
+                _connection.Open();
+                var command = _connection.CreateCommand();
                 command.CommandText = @"
                         Create Table accounts (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        username VARCHAR(30)
+                        username VARCHAR(50) DEFAULT 'Player',
+                        password VARCHAR(500) DEFAULT '',
+                        device_id VARCHAR(500)DEFAULT '',
+                        ip_address VARCHAR(50) DEFAULT '0.0.0.0',
+                        client_index INTEGER DEFAULT -1,
+                        login_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        banned INTEGER DEFAULT 0
                         )";
                 command.ExecuteNonQuery();
-                connection.Close();
+                _connection.Close();
             }
         }
 
