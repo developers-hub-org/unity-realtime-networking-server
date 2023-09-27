@@ -28,7 +28,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
             public string id = string.Empty;
             public RoomType type = RoomType.HOST_MANAGED;
             public bool started = false;
-            public int sceneIndex = 0;
+            public int gameID = 0;
             public long hostID = 0;
             public string hostUsername = string.Empty;
             public string password = string.Empty;

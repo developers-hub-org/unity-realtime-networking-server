@@ -46,7 +46,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
             Console.WriteLine("Incoming connection from {0}.", client.Client.RemoteEndPoint);
             for (int i = 1; i <= MaxPlayers; i++)
             {
-                if (clients[i].tcp.socket == null)
+                if (clients[i].tcp.socket == null && clients[i].accountID < 0 && clients[i].disconnecting == false)
                 {
                     clients[i].tcp.Initialize(client);
                     IPEndPoint ip = client.Client.RemoteEndPoint as IPEndPoint;

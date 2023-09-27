@@ -38,6 +38,10 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 while (nextLoop < DateTime.Now)
                 {
                     Terminal.Update();
+                    if (Terminal.autoManage)
+                    {
+                        Manager.Update();
+                    }
                     Threading.UpdateMain();
                     nextLoop = nextLoop.AddMilliseconds(updatePeriod);
                     if (nextLoop > DateTime.Now)

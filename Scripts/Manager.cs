@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Org.BouncyCastle.Utilities;
+using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Linq;
@@ -12,8 +13,13 @@ namespace DevelopersHub.RealtimeNetworking.Server
 
         public static void Initialize()
         {
-            Sqlite.Initialize();
             rooms.Clear();
+            Sqlite.Initialize();
+        }
+
+        public static void Update()
+        {
+
         }
 
         public static void OnClientConnected(int id, string ip)
@@ -21,23 +27,51 @@ namespace DevelopersHub.RealtimeNetworking.Server
             Server.clients[id].ipAddress = ip;
         }
 
-        public static void OnClientDisconnected(int id, string ip)
+        public async static void OnClientDisconnected(int id, string ip)
         {
-            if(Server.clients[id].accountID >= 0)
+            if(Server.clients[id].accountID >= 0 && Server.clients[id].disconnecting == false)
             {
-                //DisconnectBattleCheck(account_id);
-                //DisconnectRoomCheck(id, account_id);
-                //await PlayerDisconnectedAsync(account_id);
+                Server.clients[id].disconnecting = true;
+                await PlayerDisconnectedAsync(Server.clients[id].accountID);
+                if(Server.clients[id].room != null)
+                {
+                    await LeaveRoomAsync(id, false, false);
+                }
                 Server.clients[id].room = null;
                 Server.clients[id].player = null;
                 Server.clients[id].ipAddress = "";
                 Server.clients[id].accountID = -1;
+                Server.clients[id].disconnecting = false;
             }
+        }
+
+        private async static Task<int> PlayerDisconnectedAsync(long accountID)
+        {
+            Task<int> task = Task.Run(() =>
+            {
+                return Retry.Do(() => _PlayerDisconnectedAsync(accountID), TimeSpan.FromSeconds(0.1), 5, false);
+            });
+            return await task;
+        }
+
+        private static int _PlayerDisconnectedAsync(long accountID)
+        {
+            using (var connection = Sqlite.connection)
+            {
+                connection.Open();
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = string.Format(@"UPDATE accounts SET client_index = -1 WHERE id = {0}", accountID);
+                    command.ExecuteNonQuery();
+                }
+                connection.Close();
+            }
+            return 0;
         }
 
         private enum InternalID
         {
-            AUTH = 1, GET_ROOMS = 2, CREATE_ROOM = 3, JOIN_ROOM = 4, LEAVE_ROOM = 5, DELETE_ROOM = 6, ROOM_UPDATED = 7, KICK_FROM_ROOM = 8, STATUS_IN_ROOM = 9, START_ROOM = 10, SYNC_PLAYER = 11
+            AUTH = 1, GET_ROOMS = 2, CREATE_ROOM = 3, JOIN_ROOM = 4, LEAVE_ROOM = 5, DELETE_ROOM = 6, ROOM_UPDATED = 7, KICK_FROM_ROOM = 8, STATUS_IN_ROOM = 9, START_ROOM = 10, SYNC_ROOM_PLAYER = 11
         }
 
         public static void ReceivedPacket(int clientID, Packet packet)
@@ -56,8 +90,9 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 case InternalID.CREATE_ROOM:
                     string crRoomPass = packet.ReadString();
                     int crRoomScene = packet.ReadInt();
+                    int crRoomTeam = packet.ReadInt();
                     packet.Dispose();
-                    _ = CreateRoomAsync(clientID, Server.clients[clientID].accountID, crRoomPass, crRoomScene);
+                    _ = CreateRoomAsync(clientID, Server.clients[clientID].accountID, crRoomPass, crRoomScene, crRoomTeam);
                     break;
                 case InternalID.GET_ROOMS:
                     packet.Dispose();
@@ -66,8 +101,9 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 case InternalID.JOIN_ROOM:
                     string jnRoomID = packet.ReadString();
                     string jnRoomPass = packet.ReadString();
+                    int hnRoomTeam = packet.ReadInt();
                     packet.Dispose();
-                    _ = JoinRoomAsync(clientID, Server.clients[clientID].accountID, jnRoomID, jnRoomPass);
+                    _ = JoinRoomAsync(clientID, Server.clients[clientID].accountID, jnRoomID, jnRoomPass, hnRoomTeam);
                     break;
                 case InternalID.DELETE_ROOM:
                     packet.Dispose();
@@ -90,6 +126,13 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 case InternalID.START_ROOM:
                     packet.Dispose();
                     _ = StartRoomAsync(clientID);
+                    break;
+                case InternalID.SYNC_ROOM_PLAYER:
+                    int syScene = packet.ReadInt();
+                    int syDataLen = packet.ReadInt();
+                    byte[] syData = packet.ReadBytes(syDataLen);
+                    packet.Dispose();
+                    SyncPlayer(clientID, syData, syScene);
                     break;
             }
         }
@@ -193,7 +236,6 @@ namespace DevelopersHub.RealtimeNetworking.Server
                         {
                             command.CommandType = CommandType.Text;
                             command.CommandText = string.Format(@"SELECT id FROM accounts WHERE LOWER(username) = '{0}';", username.ToLower());
-                            Console.WriteLine(command.CommandText);
                             using (var reader = command.ExecuteReader())
                             {
                                 if (reader.HasRows)
@@ -205,7 +247,6 @@ namespace DevelopersHub.RealtimeNetworking.Server
                                 }
                             }
                         }
-                        Console.WriteLine(username + " " + id);
                         if (id >= 0)
                         {
                             // Username is taken
@@ -285,16 +326,16 @@ namespace DevelopersHub.RealtimeNetworking.Server
             return await task;
         }
 
-        private async static Task<int> CreateRoomAsync(int clientID, long account_id, string password, int sceneIndex)
+        private async static Task<int> CreateRoomAsync(int clientID, long account_id, string password, int gameID, int team)
         {
             Task<int> task = Task.Run(() =>
             {
-                return Retry.Do(() => _CreateRoomAsync(clientID, account_id, password, sceneIndex), TimeSpan.FromSeconds(0.1), 5, false);
+                return Retry.Do(() => _CreateRoomAsync(clientID, account_id, password, gameID, team), TimeSpan.FromSeconds(0.1), 1, false);
             });
             return await task;
         }
 
-        private static int _CreateRoomAsync(int clientID, long accountID, string password, int sceneIndex)
+        private static int _CreateRoomAsync(int clientID, long accountID, string password, int gameID, int team)
         {
             int response = 0;
             Data.Room room = null;
@@ -320,7 +361,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                                     room.id = Guid.NewGuid().ToString();
                                     room.type = Data.RoomType.HOST_MANAGED;
                                     room.started = false;
-                                    room.sceneIndex = sceneIndex;
+                                    room.gameID = gameID;
                                     room.hostID = accountID;
                                     room.hostUsername = reader.GetString("username");
                                     room.password = password;
@@ -332,6 +373,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                                     Server.clients[clientID].player.username = room.hostUsername;
                                     Server.clients[clientID].player.client = clientID;
                                     Server.clients[clientID].player.ready = false;
+                                    Server.clients[clientID].player.team = team;
                                     room.players.Add(Server.clients[clientID].player);
                                     Server.clients[clientID].room = room;
                                     rooms.Add(room);
@@ -357,7 +399,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
             return response;
         }
 
-        private static void SyncPlayer(int id, byte[] bytes)
+        private static void SyncPlayer(int id, byte[] bytes, int scene)
         {
             Task task = Task.Run(() =>
             {
@@ -365,15 +407,16 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 {
                     if (Server.clients[id].room != null && Server.clients[id].room.started)
                     {
-                        long account_id = Server.clients[id].accountID;
                         for (int i = 0; i < Server.clients[id].room.players.Count; i++)
                         {
                             if (Server.clients[id].room.players[i].id == Server.clients[id].accountID) { continue; }
                             Packet packet = new Packet();
-                            packet.Write((int)InternalID.SYNC_PLAYER);
+                            packet.Write((int)InternalID.SYNC_ROOM_PLAYER);
+                            packet.Write(scene);
+                            packet.Write(Server.clients[id].accountID);
                             packet.Write(bytes.Length);
                             packet.Write(bytes);
-                            Sender.TCP_Send(Server.clients[id].room.players[i].client, packet);
+                            SendUDPData(Server.clients[id].room.players[i].client, packet);
                         }
                     }
                 }
@@ -399,11 +442,11 @@ namespace DevelopersHub.RealtimeNetworking.Server
             return null;
         }
 
-        private async static Task<int> JoinRoomAsync(int clientID, long accountID, string roomID, string password)
+        private async static Task<int> JoinRoomAsync(int clientID, long accountID, string roomID, string password, int team)
         {
             Task<int> task = Task.Run(() =>
             {
-                return Retry.Do(() => _JoinRoomAsync(clientID, accountID, roomID, password), TimeSpan.FromSeconds(0.1), 5, false);
+                return Retry.Do(() => _JoinRoomAsync(clientID, accountID, roomID, password, team), TimeSpan.FromSeconds(0.1), 5, false);
             });
             return await task;
         }
@@ -413,7 +456,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
             UNKNOWN = 0, ROOM_DELETED = 1, PLAYER_JOINED = 2, PLAYER_LEFT = 3, PLAYER_STATUS_CHANGED = 4, PLAYER_KICKED = 5, GAME_STARTED = 6
         }
 
-        private static int _JoinRoomAsync(int clientID, long accountID, string roomID, string password)
+        private static int _JoinRoomAsync(int clientID, long accountID, string roomID, string password, int team, bool notifyCallerInUpdate = true)
         {
             int response = 0;
             Data.Room room = null;
@@ -475,6 +518,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                                         Server.clients[clientID].player.username = reader.GetString("username");
                                         Server.clients[clientID].player.client = clientID;
                                         Server.clients[clientID].player.ready = false;
+                                        Server.clients[clientID].player.team = team;
                                         room.players.Add(Server.clients[clientID].player);
                                         Server.clients[clientID].room = room;
                                         response = 1;
@@ -498,7 +542,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 byte[] playerBytes = Tools.Compress(Tools.Serialize<Data.Player>(Server.clients[clientID].player));
                 for (int i = 0; i < room.players.Count; i++)
                 {
-                    if (room.players[i].id == accountID) { continue; }
+                    if (room.players[i].id == accountID && !notifyCallerInUpdate) { continue; }
                     Packet othersPacket = new Packet();
                     othersPacket.Write((int)InternalID.ROOM_UPDATED);
                     othersPacket.Write((int)RoomUpdateType.PLAYER_JOINED);
@@ -522,7 +566,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
             return await task;
         }
 
-        private static int _DeleteRoomAsync(int clientID, bool hostLeave = false)
+        private static int _DeleteRoomAsync(int clientID, bool hostLeave = false, bool notifyCallerInUpdate = true, bool notifyCaller = true)
         {
             int response = 0;
             Data.Room room = GetPlayerRoom(Server.clients[clientID].accountID);
@@ -533,7 +577,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
             }
             else
             {
-                if(room.hostID == Server.clients[clientID].accountID && room.type == Data.RoomType.HOST_MANAGED && !room.started)
+                if((room.hostID == Server.clients[clientID].accountID && room.type == Data.RoomType.HOST_MANAGED && !room.started) || (room.started && room.players.Count <= 1))
                 {
                     response = 1;
                 }
@@ -552,7 +596,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 byte[] playerBytes = Tools.Compress(Tools.Serialize<Data.Player>(Server.clients[clientID].player));
                 for (int i = 0; i < room.players.Count; i++)
                 {
-                    if (room.players[i].id == Server.clients[clientID].accountID) { continue; }
+                    if (room.players[i].id == Server.clients[clientID].accountID && !notifyCallerInUpdate) { continue; }
                     Packet othersPacket = new Packet();
                     othersPacket.Write((int)InternalID.ROOM_UPDATED);
                     othersPacket.Write((int)RoomUpdateType.ROOM_DELETED);
@@ -564,25 +608,32 @@ namespace DevelopersHub.RealtimeNetworking.Server
                     Server.clients[room.players[i].client].room = null;
                 }
                 Server.clients[clientID].room = null;
-                rooms.Remove(room);
+                for (int i = 0; i < rooms.Count; i++)
+                {
+                    if (rooms[i].id == room.id)
+                    {
+                        rooms.RemoveAt(i);
+                        break;
+                    }
+                }
             }
-            if (!hostLeave)
+            if (!hostLeave && notifyCaller)
             {
                 SendTCPData(clientID, packet);
             }
             return response;
         }
 
-        private async static Task<int> LeaveRoomAsync(int clientID)
+        private async static Task<int> LeaveRoomAsync(int clientID, bool notifyCallerInUpdate = true, bool notifyCaller = true)
         {
             Task<int> task = Task.Run(() =>
             {
-                return Retry.Do(() => _LeaveRoomAsync(clientID), TimeSpan.FromSeconds(0.1), 5, false);
+                return Retry.Do(() => _LeaveRoomAsync(clientID, notifyCallerInUpdate, notifyCaller), TimeSpan.FromSeconds(0.1), 5, false);
             });
             return await task;
         }
 
-        private static int _LeaveRoomAsync(int clientID)
+        private static int _LeaveRoomAsync(int clientID, bool notifyCallerInUpdate = true, bool notifyCaller = true)
         {
             int response = 0;
             Data.Room room = GetPlayerRoom(Server.clients[clientID].accountID);
@@ -594,9 +645,9 @@ namespace DevelopersHub.RealtimeNetworking.Server
             }
             else
             {
-                if (room.hostID == Server.clients[clientID].accountID && room.type == Data.RoomType.HOST_MANAGED && !room.started)
+                if ((room.hostID == Server.clients[clientID].accountID && room.type == Data.RoomType.HOST_MANAGED && !room.started) || (room.started && room.players.Count <= 1))
                 {
-                    deleted = (_DeleteRoomAsync(clientID, true) == 1);
+                    deleted = (_DeleteRoomAsync(clientID, true, notifyCallerInUpdate, notifyCaller) == 1);
                 }
                 response = 1;
             }
@@ -612,7 +663,6 @@ namespace DevelopersHub.RealtimeNetworking.Server
                     byte[] bytes = Tools.Compress(Tools.Serialize<Data.Room>(room));
                     for (int i = 0; i < room.players.Count; i++)
                     {
-                        if (room.players[i].id == Server.clients[clientID].accountID) { continue; }
                         Packet othersPacket = new Packet();
                         othersPacket.Write((int)InternalID.ROOM_UPDATED);
                         othersPacket.Write((int)RoomUpdateType.PLAYER_LEFT);
@@ -622,9 +672,24 @@ namespace DevelopersHub.RealtimeNetworking.Server
                         othersPacket.Write(playerBytes);
                         SendTCPData(room.players[i].client, othersPacket);
                     }
+                    if (notifyCallerInUpdate)
+                    {
+                        Packet othersPacket = new Packet();
+                        othersPacket.Write((int)InternalID.ROOM_UPDATED);
+                        othersPacket.Write((int)RoomUpdateType.PLAYER_LEFT);
+                        othersPacket.Write(bytes.Length);
+                        othersPacket.Write(bytes);
+                        othersPacket.Write(playerBytes.Length);
+                        othersPacket.Write(playerBytes);
+                        SendTCPData(clientID, othersPacket);
+                    }
+                    Server.clients[clientID].room = null;
                 }
             }
-            SendTCPData(clientID, packet);
+            if (notifyCaller)
+            {
+                SendTCPData(clientID, packet);
+            }
             return response;
         }
 
@@ -637,7 +702,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
             return await task;
         }
 
-        private static int _KickFromRoomAsync(int clientID, long targetID)
+        private static int _KickFromRoomAsync(int clientID, long targetID, bool notifyCallerInUpdate = true)
         {
             int response = 0;
             Data.Room room = GetPlayerRoom(Server.clients[clientID].accountID);
@@ -687,7 +752,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 byte[] bytes = Tools.Compress(Tools.Serialize<Data.Room>(room));
                 for (int i = 0; i < room.players.Count; i++)
                 {
-                    if (room.players[i].id == Server.clients[clientID].accountID) { continue; }
+                    if (room.players[i].id == Server.clients[clientID].accountID && !notifyCallerInUpdate) { continue; }
                     Packet othersPacket = new Packet();
                     othersPacket.Write((int)InternalID.ROOM_UPDATED);
                     othersPacket.Write((int)RoomUpdateType.PLAYER_KICKED);
@@ -723,7 +788,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
             return await task;
         }
 
-        private static int _ChangeRoomStatusAsync(int clientID, bool ready)
+        private static int _ChangeRoomStatusAsync(int clientID, bool ready, bool notifyCallerInUpdate = true)
         {
             int response = 0;
             Data.Room room = GetPlayerRoom(Server.clients[clientID].accountID);
@@ -754,7 +819,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 byte[] bytes = Tools.Compress(Tools.Serialize<Data.Room>(room));
                 for (int i = 0; i < room.players.Count; i++)
                 {
-                    if (room.players[i].id == Server.clients[clientID].accountID) { continue; }
+                    if (room.players[i].id == Server.clients[clientID].accountID && !notifyCallerInUpdate) { continue; }
                     Packet othersPacket = new Packet();
                     othersPacket.Write((int)InternalID.ROOM_UPDATED);
                     othersPacket.Write((int)RoomUpdateType.PLAYER_STATUS_CHANGED);
@@ -778,7 +843,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
             return await task;
         }
 
-        private static int _StartRoomAsync(int clientID)
+        private static int _StartRoomAsync(int clientID, bool notifyCallerInUpdate = true)
         {
             int response = 0;
             Data.Room room = GetPlayerRoom(Server.clients[clientID].accountID);
@@ -817,7 +882,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 byte[] bytes = Tools.Compress(Tools.Serialize<Data.Room>(room));
                 for (int i = 0; i < room.players.Count; i++)
                 {
-                    if (room.players[i].id == Server.clients[clientID].accountID) { continue; }
+                    if (room.players[i].id == Server.clients[clientID].accountID && !notifyCallerInUpdate) { continue; }
                     Packet othersPacket = new Packet();
                     othersPacket.Write((int)InternalID.ROOM_UPDATED);
                     othersPacket.Write((int)RoomUpdateType.GAME_STARTED);

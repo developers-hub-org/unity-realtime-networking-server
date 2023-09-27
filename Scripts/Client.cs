@@ -14,6 +14,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
         public string sendToken = "xxxxx";
         public string receiveToken = "xxxxx";
         public long accountID = -1;
+        public bool disconnecting = false;
         public string ipAddress = "000.0.0.000";
         public Data.Room room = null;
         public Data.Player player = null;
