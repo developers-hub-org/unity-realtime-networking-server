@@ -1,5 +1,4 @@
-﻿using Org.BouncyCastle.Utilities;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Linq;
@@ -71,7 +70,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
 
         private enum InternalID
         {
-            AUTH = 1, GET_ROOMS = 2, CREATE_ROOM = 3, JOIN_ROOM = 4, LEAVE_ROOM = 5, DELETE_ROOM = 6, ROOM_UPDATED = 7, KICK_FROM_ROOM = 8, STATUS_IN_ROOM = 9, START_ROOM = 10, SYNC_ROOM_PLAYER = 11
+            AUTH = 1, GET_ROOMS = 2, CREATE_ROOM = 3, JOIN_ROOM = 4, LEAVE_ROOM = 5, DELETE_ROOM = 6, ROOM_UPDATED = 7, KICK_FROM_ROOM = 8, STATUS_IN_ROOM = 9, START_ROOM = 10, SYNC_ROOM_PLAYER = 11, SET_HOST = 12, DESTROY_OBJECT = 13
         }
 
         public static void ReceivedPacket(int clientID, Packet packet)
@@ -129,10 +128,23 @@ namespace DevelopersHub.RealtimeNetworking.Server
                     break;
                 case InternalID.SYNC_ROOM_PLAYER:
                     int syScene = packet.ReadInt();
+                    bool syUnowned = packet.ReadBool();
                     int syDataLen = packet.ReadInt();
                     byte[] syData = packet.ReadBytes(syDataLen);
+                    byte[] syData2 = null;
+                    if (syUnowned)
+                    {
+                        syDataLen = packet.ReadInt();
+                        syData2 = packet.ReadBytes(syDataLen);
+                    }
                     packet.Dispose();
-                    SyncPlayer(clientID, syData, syScene);
+                    SyncPlayer(clientID, syData, syScene, syUnowned, syData2);
+                    break;
+                case InternalID.DESTROY_OBJECT:
+                    int dsScene = packet.ReadInt();
+                    string dsID = packet.ReadString();
+                    packet.Dispose();
+                    DestroyObject(clientID, dsScene, dsID);
                     break;
             }
         }
@@ -373,6 +385,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                                     Server.clients[clientID].player.username = room.hostUsername;
                                     Server.clients[clientID].player.client = clientID;
                                     Server.clients[clientID].player.ready = false;
+                                    Server.clients[clientID].player.scene = -1;
                                     Server.clients[clientID].player.team = team;
                                     room.players.Add(Server.clients[clientID].player);
                                     Server.clients[clientID].room = room;
@@ -399,14 +412,70 @@ namespace DevelopersHub.RealtimeNetworking.Server
             return response;
         }
 
-        private static void SyncPlayer(int id, byte[] bytes, int scene)
+        private static void SyncPlayer(int id, byte[] bytes, int scene, bool includeUnowned, byte[] unownedData)
         {
             Task task = Task.Run(() =>
             {
                 try
                 {
-                    if (Server.clients[id].room != null && Server.clients[id].room.started)
+                    if (Server.clients[id].room != null && Server.clients[id].room.started && Server.clients[id].player != null)
                     {
+                        int sceneHost = -1;
+                        bool checkHost = false;
+                        bool setHost = false; 
+                        for (int i = 0; i < Server.clients[id].room.sceneHostsKeys.Count; i++)
+                        {
+                            if (Server.clients[id].room.sceneHostsKeys[i] == scene)
+                            {
+                                sceneHost = i;
+                                break;
+                            }
+                        }
+                        if(sceneHost >= 0)
+                        {
+                            if(Server.clients[id].room.sceneHostsValues[sceneHost] != Server.clients[id].accountID)
+                            {
+                                checkHost = true;
+                            }
+                        }
+                        else
+                        {
+                            setHost = true;
+                            sceneHost = Server.clients[id].room.sceneHostsKeys.Count;
+                            Server.clients[id].room.sceneHostsKeys.Add(scene);
+                            Server.clients[id].room.sceneHostsValues.Add(Server.clients[id].accountID);
+                        }
+                        Server.clients[id].player.scene = scene;
+                        if (checkHost)
+                        {
+                            for (int i = 0; i < Server.clients[id].room.players.Count; i++)
+                            {
+                                if (Server.clients[id].room.players[i].id == Server.clients[id].accountID) { continue; }
+                                if (Server.clients[id].room.players[i].id == Server.clients[id].room.sceneHostsValues[sceneHost])
+                                {
+                                    if (Server.clients[id].room.players[i].scene != scene)
+                                    {
+                                        setHost = true;
+                                        Server.clients[id].room.sceneHostsValues[sceneHost] = Server.clients[id].accountID;
+                                    }
+                                    checkHost = false;
+                                    break;
+                                }
+                            }
+                        }
+                        if (checkHost)
+                        {
+                            setHost = true;
+                            Server.clients[id].room.sceneHostsValues[sceneHost] = Server.clients[id].accountID;
+                        }
+                        if (setHost)
+                        {
+                            Packet packet = new Packet();
+                            packet.Write((int)InternalID.SET_HOST);
+                            packet.Write(scene);
+                            packet.Write(Server.clients[id].room.sceneHostsValues[sceneHost]);
+                            SendTCPData(id, packet);
+                        }
                         for (int i = 0; i < Server.clients[id].room.players.Count; i++)
                         {
                             if (Server.clients[id].room.players[i].id == Server.clients[id].accountID) { continue; }
@@ -414,8 +483,42 @@ namespace DevelopersHub.RealtimeNetworking.Server
                             packet.Write((int)InternalID.SYNC_ROOM_PLAYER);
                             packet.Write(scene);
                             packet.Write(Server.clients[id].accountID);
+                            packet.Write(Server.clients[id].room.sceneHostsValues[sceneHost]);
+                            packet.Write(includeUnowned);
                             packet.Write(bytes.Length);
                             packet.Write(bytes);
+                            if (includeUnowned)
+                            {
+                                packet.Write(unownedData.Length);
+                                packet.Write(unownedData);
+                            }
+                            SendUDPData(Server.clients[id].room.players[i].client, packet);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(ex.Message + "\n" + ex.StackTrace);
+                }
+            });
+        }
+
+        private static void DestroyObject(int id, int scene, string objectID)
+        {
+            Task task = Task.Run(() =>
+            {
+                try
+                {
+                    if (Server.clients[id].room != null && Server.clients[id].room.started && Server.clients[id].player != null)
+                    {
+                        for (int i = 0; i < Server.clients[id].room.players.Count; i++)
+                        {
+                            if (Server.clients[id].room.players[i].id == Server.clients[id].accountID) { continue; }
+                            Packet packet = new Packet();
+                            packet.Write((int)InternalID.DESTROY_OBJECT);
+                            packet.Write(scene);
+                            packet.Write(Server.clients[id].accountID);
+                            packet.Write(objectID);
                             SendUDPData(Server.clients[id].room.players[i].client, packet);
                         }
                     }
@@ -515,6 +618,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                                             Server.clients[clientID].player = new Data.Player();
                                         }
                                         Server.clients[clientID].player.id = accountID;
+                                        Server.clients[clientID].player.scene = -1;
                                         Server.clients[clientID].player.username = reader.GetString("username");
                                         Server.clients[clientID].player.client = clientID;
                                         Server.clients[clientID].player.ready = false;
@@ -658,6 +762,18 @@ namespace DevelopersHub.RealtimeNetworking.Server
             {
                 if(!deleted)
                 {
+                    if (room.hostID == Server.clients[clientID].accountID)
+                    {
+                        for (int i = 0; i < room.players.Count; i++)
+                        {
+                            if (room.players[i].id != room.hostID)
+                            {
+                                room.hostID = room.players[i].id;
+                                room.hostUsername = room.players[i].username;
+                                break;
+                            }
+                        }
+                    }
                     byte[] playerBytes = Tools.Compress(Tools.Serialize<Data.Player>(Server.clients[clientID].player));
                     room.players.Remove(Server.clients[clientID].player);
                     byte[] bytes = Tools.Compress(Tools.Serialize<Data.Room>(room));
@@ -745,6 +861,18 @@ namespace DevelopersHub.RealtimeNetworking.Server
             packet.Write(response);
             if (response == 1)
             {
+                if (room.hostID == target.id)
+                {
+                    for (int i = 0; i < room.players.Count; i++)
+                    {
+                        if (room.players[i].id != room.hostID)
+                        {
+                            room.hostID = room.players[i].id;
+                            room.hostUsername = room.players[i].username;
+                            break;
+                        }
+                    }
+                }
                 room.players.Remove(target);
                 Server.clients[target.client].room = null;
                 byte[] targetBytes = Tools.Compress(Tools.Serialize<Data.Player>(target));

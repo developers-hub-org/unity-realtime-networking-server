@@ -11,7 +11,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
 
         static void Main(string[] args)
         {
-            if (Terminal.autoManage)
+            if (Terminal.useInternalManager)
             {
                 Manager.Initialize();
             }
@@ -38,7 +38,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 while (nextLoop < DateTime.Now)
                 {
                     Terminal.Update();
-                    if (Terminal.autoManage)
+                    if (Terminal.useInternalManager)
                     {
                         Manager.Update();
                     }

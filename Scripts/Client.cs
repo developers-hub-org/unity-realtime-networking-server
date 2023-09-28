@@ -206,7 +206,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 Console.WriteLine("Client with IP {0} has been disconnected.", tcp.socket.Client.RemoteEndPoint);
                 IPEndPoint ip = tcp.socket.Client.RemoteEndPoint as IPEndPoint;
                 Terminal.OnClientDisconnected(id, ip.Address.ToString());
-                if (Terminal.autoManage)
+                if (Terminal.useInternalManager)
                 {
                     Manager.OnClientDisconnected(id, ip.Address.ToString());
                 }
@@ -216,7 +216,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
             {
                 Console.WriteLine("Client with unkown IP has been disconnected.");
                 Terminal.OnClientDisconnected(id, "unknown");
-                if (Terminal.autoManage)
+                if (Terminal.useInternalManager)
                 {
                     Manager.OnClientDisconnected(id, "unknown");
                 }

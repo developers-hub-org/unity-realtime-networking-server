@@ -16,6 +16,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
             public int client = 0;
             public bool ready = false;
             public int team = 0;
+            public int scene = -1;
         }
 
         public enum RoomType
@@ -34,6 +35,8 @@ namespace DevelopersHub.RealtimeNetworking.Server
             public string password = string.Empty;
             public int maxPlayers = 100;
             public List<Player> players = new List<Player>();
+            public List<int> sceneHostsKeys = new List<int>();
+            public List<long> sceneHostsValues = new List<long>();
         }
 
     }

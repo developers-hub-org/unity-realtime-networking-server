@@ -13,13 +13,11 @@ namespace DevelopersHub.RealtimeNetworking.Server
     class Sqlite
     {
 
-        private const string _sqliteDatabasePath = @"C:\Database\realtime_networking.db";
-
         public static SqliteConnection connection
         {
             get
             {
-                return new SqliteConnection("Data Source = " + _sqliteDatabasePath + "");
+                return new SqliteConnection("Data Source = " + Terminal.sqliteDatabasePath + "");
             }
         }
 
@@ -58,14 +56,14 @@ namespace DevelopersHub.RealtimeNetworking.Server
             {
                 try
                 {
-                    if (!File.Exists(_sqliteDatabasePath))
+                    if (!File.Exists(Terminal.sqliteDatabasePath))
                     {
-                        string directory = Path.GetDirectoryName(_sqliteDatabasePath);
+                        string directory = Path.GetDirectoryName(Terminal.sqliteDatabasePath);
                         if (!Directory.Exists(directory))
                         {
                             Directory.CreateDirectory(directory);
                         }
-                        FileStream fileStream = File.Create(_sqliteDatabasePath);
+                        FileStream fileStream = File.Create(Terminal.sqliteDatabasePath);
                         return true;
                     }
                 }

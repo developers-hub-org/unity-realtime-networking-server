@@ -153,13 +153,11 @@ namespace DevelopersHub.RealtimeNetworking.Server
 
         #region Sqlite
         /*
-        private const string _sqliteDatabasePath = @"C:\database.db";
-
         public static void Demo_Sqlite_1()
         {
             try
             {
-                using (var connection = new SqliteConnection("Data Source = " + _sqliteDatabasePath))
+                using (var connection = Sqlite.connection)
                 {
                     connection.Open();
                     var command = connection.CreateCommand();
@@ -183,7 +181,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
         {
             try
             {
-                using (var connection = new SqliteConnection("Data Source = " + _sqliteDatabasePath))
+                using (var connection = Sqlite.connection)
                 {
                     connection.Open();
                     var command = connection.CreateCommand();

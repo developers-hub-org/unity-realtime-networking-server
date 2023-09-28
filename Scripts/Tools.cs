@@ -13,8 +13,6 @@ namespace DevelopersHub.RealtimeNetworking.Server
     static class Tools
     {
 
-        public static readonly string logFolderPath = @"C:\Log\Realtime Networking\";
-
         public static void LogError(string message, string trace, string folder = "")
         {
             Console.WriteLine("Error:" + "\n" + message + "\n" + trace);
@@ -22,7 +20,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
             {
                 try
                 {
-                    string folderPath = logFolderPath;
+                    string folderPath = Terminal.logFolderPath;
                     if (!string.IsNullOrEmpty(folder))
                     {
                         folderPath = folderPath + folder + "\\";

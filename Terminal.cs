@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Numerics;
 
 namespace DevelopersHub.RealtimeNetworking.Server
 {
@@ -7,9 +6,11 @@ namespace DevelopersHub.RealtimeNetworking.Server
     {
 
         public const int updatesPerSecond = 30;
-        public const bool autoManage = true;
         public const int maxPlayers = 100000;
         public const int port = 5555;
+        public const bool useInternalManager = true;
+        public const string sqliteDatabasePath = @"C:\Database\realtime_networking.db";
+        public const string logFolderPath = @"C:\Log\realtime_networking\";
 
         public static void Start()
         {

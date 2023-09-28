@@ -26,7 +26,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
 
         public static void ReceiveInternal(int clientID, Packet packet)
         {
-            if (packet != null)
+            if (packet != null && Terminal.useInternalManager)
             {
                 Manager.ReceivedPacket(clientID, packet);
             }
