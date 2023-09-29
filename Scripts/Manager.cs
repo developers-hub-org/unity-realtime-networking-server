@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Data;
 using System.Linq;
+using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -143,8 +144,9 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 case InternalID.DESTROY_OBJECT:
                     int dsScene = packet.ReadInt();
                     string dsID = packet.ReadString();
+                    Vector3 dsPis = packet.ReadVector3();
                     packet.Dispose();
-                    DestroyObject(clientID, dsScene, dsID);
+                    DestroyObject(clientID, dsScene, dsID, dsPis);
                     break;
             }
         }
@@ -503,7 +505,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
             });
         }
 
-        private static void DestroyObject(int id, int scene, string objectID)
+        private static void DestroyObject(int id, int scene, string objectID, Vector3 position)
         {
             Task task = Task.Run(() =>
             {
@@ -519,7 +521,8 @@ namespace DevelopersHub.RealtimeNetworking.Server
                             packet.Write(scene);
                             packet.Write(Server.clients[id].accountID);
                             packet.Write(objectID);
-                            SendUDPData(Server.clients[id].room.players[i].client, packet);
+                            packet.Write(position);
+                            SendTCPData(Server.clients[id].room.players[i].client, packet);
                         }
                     }
                 }
