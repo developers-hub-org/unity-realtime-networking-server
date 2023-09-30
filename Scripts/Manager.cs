@@ -129,17 +129,26 @@ namespace DevelopersHub.RealtimeNetworking.Server
                     break;
                 case InternalID.SYNC_ROOM_PLAYER:
                     int syScene = packet.ReadInt();
-                    bool syUnowned = packet.ReadBool();
-                    int syDataLen = packet.ReadInt();
-                    byte[] syData = packet.ReadBytes(syDataLen);
+                    int syDataLen1 = packet.ReadInt();
+                    int syDataLen2 = packet.ReadInt();
+                    int syDataLen3 = packet.ReadInt();
+                    byte[] syData1 = null;
                     byte[] syData2 = null;
-                    if (syUnowned)
+                    byte[] syData3 = null;
+                    if(syDataLen1 > 0)
                     {
-                        syDataLen = packet.ReadInt();
-                        syData2 = packet.ReadBytes(syDataLen);
+                        syData1 = packet.ReadBytes(syDataLen1);
+                    }
+                    if (syDataLen2 > 0)
+                    {
+                        syData2 = packet.ReadBytes(syDataLen2);
+                    }
+                    if (syDataLen3 > 0)
+                    {
+                        syData3 = packet.ReadBytes(syDataLen3);
                     }
                     packet.Dispose();
-                    SyncPlayer(clientID, syData, syScene, syUnowned, syData2);
+                    SyncPlayer(clientID, syScene, syData1, syData2, syData3);
                     break;
                 case InternalID.DESTROY_OBJECT:
                     int dsScene = packet.ReadInt();
@@ -414,7 +423,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
             return response;
         }
 
-        private static void SyncPlayer(int id, byte[] bytes, int scene, bool includeUnowned, byte[] unownedData)
+        private static void SyncPlayer(int id, int scene, byte[] data1, byte[] data2, byte[] data3)
         {
             Task task = Task.Run(() =>
             {
@@ -486,13 +495,20 @@ namespace DevelopersHub.RealtimeNetworking.Server
                             packet.Write(scene);
                             packet.Write(Server.clients[id].accountID);
                             packet.Write(Server.clients[id].room.sceneHostsValues[sceneHost]);
-                            packet.Write(includeUnowned);
-                            packet.Write(bytes.Length);
-                            packet.Write(bytes);
-                            if (includeUnowned)
+                            packet.Write(data1 == null ? 0 : data1.Length);
+                            packet.Write(data2 == null ? 0 : data2.Length);
+                            packet.Write(data3 == null ? 0 : data3.Length);
+                            if (data1 != null)
                             {
-                                packet.Write(unownedData.Length);
-                                packet.Write(unownedData);
+                                packet.Write(data1);
+                            }
+                            if (data2 != null)
+                            {
+                                packet.Write(data2);
+                            }
+                            if (data3 != null)
+                            {
+                                packet.Write(data3);
                             }
                             SendUDPData(Server.clients[id].room.players[i].client, packet);
                         }
