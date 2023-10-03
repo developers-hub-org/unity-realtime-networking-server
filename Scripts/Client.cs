@@ -18,6 +18,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
         public string ipAddress = "000.0.0.000";
         public Data.Room room = null;
         public Data.Player player = null;
+        public DateTime lastTick = DateTime.Now;
 
         public Client(int _clientId)
         {

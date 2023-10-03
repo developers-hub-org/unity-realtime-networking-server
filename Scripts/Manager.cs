@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Data;
-using System.Linq;
 using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
@@ -71,7 +70,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
 
         private enum InternalID
         {
-            AUTH = 1, GET_ROOMS = 2, CREATE_ROOM = 3, JOIN_ROOM = 4, LEAVE_ROOM = 5, DELETE_ROOM = 6, ROOM_UPDATED = 7, KICK_FROM_ROOM = 8, STATUS_IN_ROOM = 9, START_ROOM = 10, SYNC_ROOM_PLAYER = 11, SET_HOST = 12, DESTROY_OBJECT = 13
+            AUTH = 1, GET_ROOMS = 2, CREATE_ROOM = 3, JOIN_ROOM = 4, LEAVE_ROOM = 5, DELETE_ROOM = 6, ROOM_UPDATED = 7, KICK_FROM_ROOM = 8, STATUS_IN_ROOM = 9, START_ROOM = 10, SYNC_ROOM_PLAYER = 11, SET_HOST = 12, DESTROY_OBJECT = 13, CHANGE_OWNER = 14, CHANGE_OWNER_CONFIRM = 15
         }
 
         public static void ReceivedPacket(int clientID, Packet packet)
@@ -156,6 +155,23 @@ namespace DevelopersHub.RealtimeNetworking.Server
                     Vector3 dsPis = packet.ReadVector3();
                     packet.Dispose();
                     DestroyObject(clientID, dsScene, dsID, dsPis);
+                    break;
+                case InternalID.CHANGE_OWNER:
+                    int coScene = packet.ReadInt();
+                    int coDataLen = packet.ReadInt();
+                    byte[] coData = packet.ReadBytes(coDataLen);
+                    long coOwner = packet.ReadLong();
+                    packet.Dispose();
+                    ChangeOwner(clientID, coScene, coData, coOwner);
+                    break;
+                case InternalID.CHANGE_OWNER_CONFIRM:
+                    int cfScene = packet.ReadInt();
+                    string cfID = packet.ReadString();
+                    Vector3 cfPis = packet.ReadVector3();
+                    long cfOwner = packet.ReadLong();
+                    long cfAcc = packet.ReadLong();
+                    packet.Dispose();
+                    ChangeOwner(clientID, cfScene, cfID, cfPis, cfOwner, cfAcc);
                     break;
             }
         }
@@ -433,7 +449,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                     {
                         int sceneHost = -1;
                         bool checkHost = false;
-                        bool setHost = false; 
+                        bool setHost = false;
                         for (int i = 0; i < Server.clients[id].room.sceneHostsKeys.Count; i++)
                         {
                             if (Server.clients[id].room.sceneHostsKeys[i] == scene)
@@ -464,7 +480,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                                 if (Server.clients[id].room.players[i].id == Server.clients[id].accountID) { continue; }
                                 if (Server.clients[id].room.players[i].id == Server.clients[id].room.sceneHostsValues[sceneHost])
                                 {
-                                    if (Server.clients[id].room.players[i].scene != scene)
+                                    if (Server.clients[id].room.players[i].scene != scene || (DateTime.Now - Server.clients[Server.clients[id].room.players[i].client].lastTick).TotalSeconds > 1d)
                                     {
                                         setHost = true;
                                         Server.clients[id].room.sceneHostsValues[sceneHost] = Server.clients[id].accountID;
@@ -487,6 +503,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                             packet.Write(Server.clients[id].room.sceneHostsValues[sceneHost]);
                             SendTCPData(id, packet);
                         }
+                        Server.clients[id].lastTick = DateTime.Now;
                         for (int i = 0; i < Server.clients[id].room.players.Count; i++)
                         {
                             if (Server.clients[id].room.players[i].id == Server.clients[id].accountID) { continue; }
@@ -539,6 +556,76 @@ namespace DevelopersHub.RealtimeNetworking.Server
                             packet.Write(objectID);
                             packet.Write(position);
                             SendTCPData(Server.clients[id].room.players[i].client, packet);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(ex.Message + "\n" + ex.StackTrace);
+                }
+            });
+        }
+
+        private static void ChangeOwner(int id, int scene, byte[] objects, long newOwner)
+        {
+            Task task = Task.Run(() =>
+            {
+                try
+                {
+                    if (Server.clients[id].room != null && Server.clients[id].room.started && Server.clients[id].player != null)
+                    {
+                        int sceneHost = -1;
+                        for (int i = 0; i < Server.clients[id].room.sceneHostsKeys.Count; i++)
+                        {
+                            if (Server.clients[id].room.sceneHostsKeys[i] == scene)
+                            {
+                                sceneHost = i;
+                                break;
+                            }
+                        }
+                        if (sceneHost >= 0)
+                        {
+                            for (int i = 0; i < Server.clients[id].room.players.Count; i++)
+                            {
+                                if (Server.clients[id].room.players[i].id != Server.clients[id].room.sceneHostsValues[sceneHost]) { continue; }
+                                Packet packet = new Packet();
+                                packet.Write((int)InternalID.CHANGE_OWNER);
+                                packet.Write(scene);
+                                packet.Write(Server.clients[id].accountID);
+                                packet.Write(objects.Length);
+                                packet.Write(objects);
+                                packet.Write(newOwner);
+                                SendTCPData(Server.clients[id].room.players[i].client, packet);
+                                break;
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(ex.Message + "\n" + ex.StackTrace);
+                }
+            });
+        }
+
+        private static void ChangeOwner(int id, int scene, string objectID, Vector3 position, long newOwner, long accountID)
+        {
+            Task task = Task.Run(() =>
+            {
+                try
+                {
+                    if (Server.clients[id].room != null && Server.clients[id].room.started && Server.clients[id].player != null)
+                    {
+                        for (int i = 0; i < Server.clients[id].room.players.Count; i++)
+                        {
+                            Packet packet = new Packet();
+                            packet.Write((int)InternalID.CHANGE_OWNER_CONFIRM);
+                            packet.Write(scene);
+                            packet.Write(objectID);
+                            packet.Write(position);
+                            packet.Write(newOwner);
+                            SendTCPData(Server.clients[id].room.players[i].client, packet);
+                            break;
                         }
                     }
                 }
