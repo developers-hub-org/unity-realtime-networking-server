@@ -20,13 +20,13 @@ namespace DevelopersHub.RealtimeNetworking.Server
         {
             if (packet != null)
             {
-                Terminal.ReceivedPacket(clientID, packet);
+                Terminal.PacketReceived(clientID, packet);
             }
         }
 
         public static void ReceiveInternal(int clientID, Packet packet)
         {
-            if (packet != null && Terminal.useInternalManager)
+            if (packet != null && Manager.enabled)
             {
                 Manager.ReceivedPacket(clientID, packet);
             }

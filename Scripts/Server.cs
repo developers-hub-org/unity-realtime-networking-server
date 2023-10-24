@@ -50,8 +50,8 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 {
                     clients[i].tcp.Initialize(client);
                     IPEndPoint ip = client.Client.RemoteEndPoint as IPEndPoint;
-                    Terminal.OnClientConnected(i, ip.Address.ToString());
-                    if (Terminal.useInternalManager)
+                    Terminal.ClientConnected(i, ip.Address.ToString());
+                    if (Manager.enabled)
                     {
                         Manager.OnClientConnected(i, ip.Address.ToString());
                     }

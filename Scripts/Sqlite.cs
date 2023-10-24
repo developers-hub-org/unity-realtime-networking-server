@@ -1,11 +1,7 @@
 ﻿using Microsoft.Data.Sqlite;
-using MySql.Data.MySqlClient;
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using System.Net.Http;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace DevelopersHub.RealtimeNetworking.Server
@@ -17,7 +13,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
         {
             get
             {
-                return new SqliteConnection("Data Source = " + Terminal.sqliteDatabasePath + "");
+                return new SqliteConnection("Data Source = " + Terminal.sqlite_database_path + "");
             }
         }
 
@@ -56,14 +52,14 @@ namespace DevelopersHub.RealtimeNetworking.Server
             {
                 try
                 {
-                    if (!File.Exists(Terminal.sqliteDatabasePath))
+                    if (!File.Exists(Terminal.sqlite_database_path))
                     {
-                        string directory = Path.GetDirectoryName(Terminal.sqliteDatabasePath);
+                        string directory = Path.GetDirectoryName(Terminal.sqlite_database_path);
                         if (!Directory.Exists(directory))
                         {
                             Directory.CreateDirectory(directory);
                         }
-                        FileStream fileStream = File.Create(Terminal.sqliteDatabasePath);
+                        FileStream fileStream = File.Create(Terminal.sqlite_database_path);
                         return true;
                     }
                 }
@@ -82,18 +78,50 @@ namespace DevelopersHub.RealtimeNetworking.Server
             {
                 _connection.Open();
                 var command = _connection.CreateCommand();
+
                 command.CommandText = @"
                         Create Table accounts (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         username VARCHAR(50) DEFAULT 'Player',
                         password VARCHAR(500) DEFAULT '',
-                        device_id VARCHAR(500)DEFAULT '',
+                        device_id VARCHAR(500) DEFAULT '',
                         ip_address VARCHAR(50) DEFAULT '0.0.0.0',
                         client_index INTEGER DEFAULT -1,
                         login_time DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        banned INTEGER DEFAULT 0
+                        banned INTEGER DEFAULT 0,
+                        ban_reason INTEGER DEFAULT 0
                         )";
                 command.ExecuteNonQuery();
+
+                command.CommandText = @"
+                        Create Table friends (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        account_id_1 INTEGER DEFAULT 0,
+                        account_id_2 INTEGER DEFAULT 0,
+                        status INTEGER DEFAULT 0,
+                        action_time DATETIME DEFAULT CURRENT_TIMESTAMP
+                        )";
+                command.ExecuteNonQuery();
+
+                command.CommandText = @"
+                        Create Table user_blocking (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        blocker_id INTEGER DEFAULT 0,
+                        blocked_id INTEGER DEFAULT 0,
+                        reason INTEGER DEFAULT 0,
+                        action_time DATETIME DEFAULT CURRENT_TIMESTAMP
+                        )";
+                command.ExecuteNonQuery();
+
+                command.CommandText = @"
+                        Create Table ip_banning (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        ip_address VARCHAR(50) DEFAULT '0.0.0.0',
+                        reason INTEGER DEFAULT 0,
+                        action_time DATETIME DEFAULT CURRENT_TIMESTAMP
+                        )";
+                command.ExecuteNonQuery();
+
                 _connection.Close();
             }
         }

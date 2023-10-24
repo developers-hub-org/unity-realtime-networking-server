@@ -18,6 +18,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
         public string ipAddress = "000.0.0.000";
         public Data.Room room = null;
         public Data.Player player = null;
+        public Data.Party party = null;
         public DateTime lastTick = DateTime.Now;
 
         public Client(int _clientId)
@@ -206,8 +207,8 @@ namespace DevelopersHub.RealtimeNetworking.Server
             {
                 Console.WriteLine("Client with IP {0} has been disconnected.", tcp.socket.Client.RemoteEndPoint);
                 IPEndPoint ip = tcp.socket.Client.RemoteEndPoint as IPEndPoint;
-                Terminal.OnClientDisconnected(id, ip.Address.ToString());
-                if (Terminal.useInternalManager)
+                Terminal.ClientDisconnected(id, ip.Address.ToString());
+                if (Manager.enabled)
                 {
                     Manager.OnClientDisconnected(id, ip.Address.ToString());
                 }
@@ -216,8 +217,8 @@ namespace DevelopersHub.RealtimeNetworking.Server
             else
             {
                 Console.WriteLine("Client with unkown IP has been disconnected.");
-                Terminal.OnClientDisconnected(id, "unknown");
-                if (Terminal.useInternalManager)
+                Terminal.ClientDisconnected(id, "unknown");
+                if (Manager.enabled)
                 {
                     Manager.OnClientDisconnected(id, "unknown");
                 }

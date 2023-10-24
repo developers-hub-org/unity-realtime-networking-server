@@ -20,7 +20,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
             {
                 try
                 {
-                    string folderPath = Terminal.logFolderPath;
+                    string folderPath = Terminal.log_directory_path;
                     if (!string.IsNullOrEmpty(folder))
                     {
                         folderPath = folderPath + folder + "\\";
@@ -77,6 +77,15 @@ namespace DevelopersHub.RealtimeNetworking.Server
                     return "0.0.0.0";
                 }
             }
+        }
+
+        public static int FindFreeTcpPort()
+        {
+            TcpListener listener = new TcpListener(IPAddress.Loopback, 0);
+            listener.Start();
+            int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            listener.Stop();
+            return port;
         }
 
         public static T CloneClass<T>(this T target)

@@ -7,11 +7,11 @@ namespace DevelopersHub.RealtimeNetworking.Server
     {
 
         private static bool isRunning = false;
-        private const float updatePeriod = 1000f / Terminal.updatesPerSecond;
+        private const float updatePeriod = 1000f / Terminal.updates_per_second;
 
         static void Main(string[] args)
         {
-            if (Terminal.useInternalManager)
+            if (Manager.enabled)
             {
                 Manager.Initialize();
             }
@@ -22,7 +22,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 isRunning = true;
                 Thread mainThread = new Thread(new ThreadStart(MainThread));
                 mainThread.Start();
-                Server.Start(Terminal.maxPlayers, Terminal.port);
+                Server.Start(Terminal.max_players, Terminal.port);
             }
             catch (Exception ex)
             {
@@ -38,7 +38,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 while (nextLoop < DateTime.Now)
                 {
                     Terminal.Update();
-                    if (Terminal.useInternalManager)
+                    if (Manager.enabled)
                     {
                         Manager.Update();
                     }
