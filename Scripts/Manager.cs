@@ -1,9 +1,13 @@
-﻿using System;
+﻿using MySqlX.XDevAPI;
+using Org.BouncyCastle.Bcpg;
+using Org.BouncyCastle.Utilities;
+using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
+using static DevelopersHub.RealtimeNetworking.Server.Data;
 
 namespace DevelopersHub.RealtimeNetworking.Server
 {
@@ -12,13 +16,31 @@ namespace DevelopersHub.RealtimeNetworking.Server
 
         public const bool enabled = true;
 
-        private static void Matchmaking()
+        private static (int, int) OverrideMatchmakingData(int gameID, int mapID)
         {
-
+            int teamsPerMatch = 2;
+            int playersPerTeam = 6;
+            // --->
+            // Add your custom game conditions here, for example:
+            if (gameID == 1)
+            {
+                teamsPerMatch = 2;
+                playersPerTeam = 1;
+            }
+            else if (gameID == 2)
+            {
+                teamsPerMatch = 2;
+                playersPerTeam = 100;
+            }
+            // <---
+            return (teamsPerMatch, playersPerTeam);
         }
 
+        #region Internal
         public static void Initialize()
         {
+            games.Clear();
+            parties.Clear();
             rooms.Clear();
             Sqlite.Initialize();
         }
@@ -38,9 +60,285 @@ namespace DevelopersHub.RealtimeNetworking.Server
             Netcode.Update();
         }
 
+        private static List<Data.Room> rooms = new List<Data.Room>();
+        private static List<Data.Game> games = new List<Data.Game>();
         private static bool updateMatchmaking = false;
         private static bool matchmaking = false;
         private static List<Data.Party> parties = new List<Data.Party>();
+
+        private static void Matchmaking()
+        {
+            List<MatchData> searchingMatches = new List<MatchData>();
+            List<MatchData> readyMatches = new List<MatchData>();
+            for (int i = 0; i < parties.Count; i++)
+            {
+                if (parties[i].matched)
+                {
+                    continue;
+                }
+                bool added = false;
+                for (int j = 0; j < searchingMatches.Count; j++)
+                {
+                    if (searchingMatches[j].teamsPerMatch == parties[i].teamsPerMatch && searchingMatches[j].playersPerTeam == parties[i].playersPerTeam && searchingMatches[j].gameID == parties[i].gameID && searchingMatches[j].mapID == parties[i].mapID)
+                    {
+                        for (int k = 0; k < searchingMatches[j].teams.Length; k++)
+                        {
+                            int c = 0;
+                            for (int p = 0; p < searchingMatches[j].teams[k].parties.Count; p++)
+                            {
+                                c += searchingMatches[j].teams[k].parties[p].players.Count;
+                            }
+                            if(parties[i].players.Count <= searchingMatches[j].playersPerTeam - c)
+                            {
+                                searchingMatches[j].teams[k].parties.Add(parties[i]);
+                                searchingMatches[j].addedPlayers += parties[i].players.Count;
+                                if(searchingMatches[j].addedPlayers == searchingMatches[j].playersPerTeam * searchingMatches[j].teamsPerMatch)
+                                {
+                                    readyMatches.Add(searchingMatches[j]);
+                                    searchingMatches.RemoveAt(j);
+                                }
+                                added = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (added)
+                    {
+                        break;
+                    }
+                }
+                if(!added)
+                {
+                    MatchData data = new MatchData();
+                    data.teamsPerMatch = parties[i].teamsPerMatch;
+                    data.playersPerTeam = parties[i].playersPerTeam;
+                    data.gameID = parties[i].gameID;
+                    data.mapID = parties[i].mapID;
+                    data.addedPlayers = 0;
+                    data.teams = new MatchTeam[data.teamsPerMatch];
+                    for (int k = 0; k < data.teams.Length; k++)
+                    {
+                        data.teams[k] = new MatchTeam();
+                    }
+                    data.teams[0].parties.Add(parties[i]);
+                    data.addedPlayers += parties[i].players.Count;
+                    if (data.addedPlayers == data.playersPerTeam * data.teamsPerMatch)
+                    {
+                        readyMatches.Add(data);
+                    }
+                    else
+                    {
+                        searchingMatches.Add(data);
+                    }
+                }
+            }
+            for (int i = 0; i < readyMatches.Count; i++)
+            {
+                Data.Game game = new Data.Game();
+                game.room = new Data.Room();
+                game.type = Data.GameType.MATCHED;
+                game.room.gameID = readyMatches[i].gameID;
+                game.room.mapID = readyMatches[i].mapID;
+                game.room.maxPlayers = readyMatches[i].addedPlayers;
+                for (int j = 0; j < readyMatches[i].teams.Length; j++)
+                {
+                    for (int k = 0; k < readyMatches[i].teams[j].parties.Count; k++)
+                    {
+                        for (int l = 0; l < readyMatches[i].teams[j].parties[k].players.Count; l++)
+                        {
+                            readyMatches[i].teams[j].parties[k].players[l].team = j + 1;
+                            Server.clients[readyMatches[i].teams[j].parties[k].players[l].client].game = game;
+                            game.room.players.Add(readyMatches[i].teams[j].parties[k].players[l]);
+                        }
+                    }
+                }
+                game.room.hostID = game.room.players[0].id;
+                game.room.hostUsername = game.room.players[0].username;
+                game.room.id = Guid.NewGuid().ToString();
+                game.start = DateTime.Now;
+                byte[] bytes = Tools.Compress(Tools.Serialize<Data.Game>(game));
+                for (int j = 0; j < game.room.players.Count; j++)
+                {
+                    Packet packet = new Packet();
+                    packet.Write((int)InternalID.GAME_STARTED);
+                    packet.Write(bytes.Length);
+                    packet.Write(bytes);
+                    SendTCPData(game.room.players[j].client, packet);
+                }
+            }
+        }
+
+        private class MatchData
+        {
+            public int gameID = 0;
+            public int mapID = 0;
+            public int teamsPerMatch = 2;
+            public int playersPerTeam = 6;
+            public int addedPlayers = 0;
+            public MatchTeam[] teams = null;
+        }
+
+        private class MatchTeam
+        {
+            public List<Data.Party> parties =  new List<Data.Party>();
+        }
+
+        private async static Task<int> StartMatchmakingAsync(int clientID, int gameID, int mapID)
+        {
+            Task<int> task = Task.Run(() =>
+            {
+                return _StartMatchmakingAsync(clientID, gameID, mapID);
+            });
+            return await task;
+        }
+
+        private static int _StartMatchmakingAsync(int clientID, int gameID, int mapID)
+        {
+            int response = 0;
+            if (Server.clients[clientID].party == null)
+            {
+                Server.clients[clientID].party = new Data.Party();
+                Server.clients[clientID].party.id = Guid.NewGuid().ToString();
+                Server.clients[clientID].party.matched = false;
+                Server.clients[clientID].party.auto = true;
+                Server.clients[clientID].party.leaderID = Server.clients[clientID].accountID;
+                Server.clients[clientID].party.maxPlayers = 1;
+                if (Server.clients[clientID].player == null)
+                {
+                    UpdatePlayer(clientID);
+                }
+                Server.clients[clientID].party.players.Add(Server.clients[clientID].player);
+            }
+            if (!parties.Contains(Server.clients[clientID].party))
+            {
+                if (!Server.clients[clientID].party.matched)
+                {
+                    if (Server.clients[clientID].party.leaderID == Server.clients[clientID].accountID)
+                    {
+                        var match = OverrideMatchmakingData(gameID, mapID);
+                        if(match.Item1 < 1)
+                        {
+                            match.Item1 = 1;
+                        }
+                        if (match.Item2 < 1)
+                        {
+                            match.Item2 = 1;
+                        }
+                        if(match.Item2 >= Server.clients[clientID].party.players.Count)
+                        {
+                            Server.clients[clientID].party.matchmaking = true;
+                            Server.clients[clientID].party.teamsPerMatch = match.Item1;
+                            Server.clients[clientID].party.playersPerTeam = match.Item2;
+                            parties.Add(Server.clients[clientID].party);
+                            response = 1;
+                            updateMatchmaking = true;
+                            // byte[] bytes = Tools.Compress(Tools.Serialize<Data.Party>(Server.clients[clientID].party));
+                            for (int i = 0; i < Server.clients[clientID].party.players.Count; i++)
+                            {
+                                Packet packetUp = new Packet();
+                                packetUp.Write((int)InternalID.MATCHMAKING_STARTED);
+                                // packetUp.Write(bytes.Length);
+                                // packetUp.Write(bytes);
+                                SendTCPData(Server.clients[clientID].party.players[i].client, packetUp);
+                            }
+                        }
+                        else
+                        {
+                            response = 8;
+                        }
+                    }
+                    else
+                    {
+                        response = 5;
+                    }
+                }
+                else
+                {
+                    response = 7;
+                }
+            }
+            else
+            {
+                response = 6;
+            }
+            Packet packet = new Packet();
+            packet.Write((int)InternalID.JOIN_MATCHMAKING);
+            packet.Write(response);
+            SendTCPData(clientID, packet);
+            return response;
+        }
+
+        private async static Task<int> StopMatchmakingAsync(int clientID)
+        {
+            Task<int> task = Task.Run(() =>
+            {
+                return _StopMatchmakingAsync(clientID);
+            });
+            return await task;
+        }
+
+        private static int _StopMatchmakingAsync(int clientID)
+        {
+            int response = 0;
+            if (Server.clients[clientID].party != null)
+            {
+                if (parties.Contains(Server.clients[clientID].party))
+                {
+                    if (!Server.clients[clientID].party.matched)
+                    {
+                        if (Server.clients[clientID].party.leaderID == Server.clients[clientID].accountID)
+                        {
+                            Server.clients[clientID].party.matchmaking = false;
+                            parties.Remove(Server.clients[clientID].party);
+                            response = 1;
+                            updateMatchmaking = true;
+                            // byte[] bytes = Tools.Compress(Tools.Serialize<Data.Party>(Server.clients[clientID].party));
+                            for (int i = 0; i < Server.clients[clientID].party.players.Count; i++)
+                            {
+                                Packet packetUp = new Packet();
+                                packetUp.Write((int)InternalID.MATCHMAKING_STOPPED);
+                                // packetUp.Write(bytes.Length);
+                                // packetUp.Write(bytes);
+                                SendTCPData(Server.clients[clientID].party.players[i].client, packetUp);
+                            }
+                            if (Server.clients[clientID].party.auto)
+                            {
+                                if(Server.clients[clientID].party.players.Count > 1)
+                                {
+                                    Server.clients[clientID].party.auto = false;
+                                }
+                                else
+                                {
+                                    Server.clients[clientID].party.players.Clear();
+                                    Server.clients[clientID].party = null;
+                                }
+                            }
+                        }
+                        else
+                        {
+                            response = 5;
+                        }
+                    }
+                    else
+                    {
+                        response = 7;
+                    }
+                }
+                else
+                {
+                    response = 6;
+                }
+            }
+            else
+            {
+                response = 4;
+            }
+            Packet packet = new Packet();
+            packet.Write((int)InternalID.LEAVE_MATCHMAKING);
+            packet.Write(response);
+            SendTCPData(clientID, packet);
+            return response;
+        }
 
         private async static Task<int> InvitePartyAsync(int clientID, long id)
         {
@@ -136,59 +434,66 @@ namespace DevelopersHub.RealtimeNetworking.Server
             int response = 0;
             if(Server.clients[clientID].party == null)
             {
-                for (int i = 0; i < Server.clients.Count; i++)
+                if (Server.clients[clientID].room == null)
                 {
-                    if (Server.clients[i].accountID < 0 || Server.clients[i].party == null)
+                    for (int i = 0; i < Server.clients.Count; i++)
                     {
-                        continue;
-                    }
-                    if (Server.clients[i].party.id == id)
-                    {
-                        if (answer && (Server.clients[i].party.maxPlayers <= 0 || Server.clients[i].party.players.Count < Server.clients[i].party.maxPlayers))
+                        if (Server.clients[i].accountID < 0 || Server.clients[i].party == null)
                         {
-                            if (Server.clients[i].party.invites.Remove(Server.clients[clientID].accountID))
+                            continue;
+                        }
+                        if (Server.clients[i].party.id == id)
+                        {
+                            if (answer && (Server.clients[i].party.maxPlayers <= 0 || Server.clients[i].party.players.Count < Server.clients[i].party.maxPlayers))
                             {
-                                if (answer)
+                                if (Server.clients[i].party.invites.Remove(Server.clients[clientID].accountID))
                                 {
-                                    if (Server.clients[clientID].player == null)
+                                    if (answer)
                                     {
-                                        UpdatePlayer(clientID);
-                                    }
-                                    Server.clients[clientID].party = Server.clients[i].party;
-                                    Server.clients[clientID].party.players.Add(Server.clients[clientID].player);
-
-                                    // Notify others that a player joined the party
-                                    byte[] bytes = Tools.Compress(Tools.Serialize<Data.Party>(Server.clients[clientID].party));
-                                    byte[] playerBytes = Tools.Compress(Tools.Serialize<Data.Player>(Server.clients[clientID].player));
-                                    for (int j = 0; j < Server.clients[clientID].party.players.Count; j++)
-                                    {
-                                        if(Server.clients[clientID].party.players[i].id == Server.clients[clientID].accountID)
+                                        if (Server.clients[clientID].player == null)
                                         {
-                                            continue;
+                                            UpdatePlayer(clientID);
                                         }
-                                        Packet packetUp = new Packet();
-                                        packetUp.Write((int)InternalID.PARTY_UPDATED);
-                                        packetUp.Write((int)PartyUpdateType.PLAYER_JOINED);
-                                        packetUp.Write(bytes.Length);
-                                        packetUp.Write(bytes);
-                                        packetUp.Write(playerBytes.Length);
-                                        packetUp.Write(playerBytes);
-                                        SendTCPData(Server.clients[clientID].party.players[i].client, packetUp);
+                                        Server.clients[clientID].party = Server.clients[i].party;
+                                        Server.clients[clientID].party.players.Add(Server.clients[clientID].player);
+
+                                        // Notify others that a player joined the party
+                                        byte[] bytes = Tools.Compress(Tools.Serialize<Data.Party>(Server.clients[clientID].party));
+                                        byte[] playerBytes = Tools.Compress(Tools.Serialize<Data.Player>(Server.clients[clientID].player));
+                                        for (int j = 0; j < Server.clients[clientID].party.players.Count; j++)
+                                        {
+                                            if (Server.clients[clientID].party.players[i].id == Server.clients[clientID].accountID)
+                                            {
+                                                continue;
+                                            }
+                                            Packet packetUp = new Packet();
+                                            packetUp.Write((int)InternalID.PARTY_UPDATED);
+                                            packetUp.Write((int)PartyUpdateType.PLAYER_JOINED);
+                                            packetUp.Write(bytes.Length);
+                                            packetUp.Write(bytes);
+                                            packetUp.Write(playerBytes.Length);
+                                            packetUp.Write(playerBytes);
+                                            SendTCPData(Server.clients[clientID].party.players[i].client, packetUp);
+                                        }
                                     }
+                                    response = 1;
                                 }
-                                response = 1;
+                                else
+                                {
+                                    response = 4;
+                                }
                             }
                             else
                             {
-                                response = 4;
+                                response = 5;
                             }
+                            break;
                         }
-                        else
-                        {
-                            response = 5;
-                        }
-                        break;
                     }
+                }
+                else
+                {
+                    response = 7;
                 }
             }
             else
@@ -223,20 +528,31 @@ namespace DevelopersHub.RealtimeNetworking.Server
             int response = 0;
             if (Server.clients[clientID].party != null)
             {
-                Server.clients[clientID].party = new Data.Party();
-                Server.clients[clientID].party.id = Guid.NewGuid().ToString();
-                Server.clients[clientID].party.leaderID = Server.clients[clientID].accountID;
-                if(maxPlayers < 0)
+                if (Server.clients[clientID].room == null)
                 {
-                    maxPlayers = 0;
+                    Server.clients[clientID].party = new Data.Party();
+                    Server.clients[clientID].party.id = Guid.NewGuid().ToString();
+                    Server.clients[clientID].party.matched = false;
+                    Server.clients[clientID].party.auto = false;
+                    Server.clients[clientID].party.matchmaking = false;
+                    Server.clients[clientID].party.leaderID = Server.clients[clientID].accountID;
+                    if (maxPlayers < 0)
+                    {
+                        maxPlayers = 0;
+                    }
+                    Server.clients[clientID].party.maxPlayers = maxPlayers;
+                    if (Server.clients[clientID].player == null)
+                    {
+                        UpdatePlayer(clientID);
+                    }
+                    Server.clients[clientID].party.players.Add(Server.clients[clientID].player);
+                    response = 1;
                 }
-                Server.clients[clientID].party.maxPlayers = maxPlayers;
-                if (Server.clients[clientID].player == null)
+                else
                 {
-                    UpdatePlayer(clientID);
+                    // In a room
+                    response = 5;
                 }
-                Server.clients[clientID].party.players.Add(Server.clients[clientID].player);
-                response = 1;
             }
             else
             {
@@ -415,6 +731,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
             Server.clients[id].room = null;
             Server.clients[id].player = null;
             Server.clients[id].party = null;
+            Server.clients[id].game = null;
         }
 
         public async static void OnClientDisconnected(int id, string ip)
@@ -426,6 +743,10 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 if(Server.clients[id].room != null)
                 {
                     await LeaveRoomAsync(id, false, false);
+                }
+                if (Server.clients[id].game != null)
+                {
+                    await LeaveGameAsync(id, false, false, true);
                 }
                 await LeavePartyAsync(id);
                 Server.clients[id].room = null;
@@ -463,13 +784,13 @@ namespace DevelopersHub.RealtimeNetworking.Server
 
         private enum InternalID
         {
-            AUTH = 1, GET_ROOMS = 2, CREATE_ROOM = 3, JOIN_ROOM = 4, LEAVE_ROOM = 5, DELETE_ROOM = 6, ROOM_UPDATED = 7, KICK_FROM_ROOM = 8, STATUS_IN_ROOM = 9, START_ROOM = 10, SYNC_ROOM_PLAYER = 11, SET_HOST = 12, DESTROY_OBJECT = 13, CHANGE_OWNER = 14, CHANGE_OWNER_CONFIRM = 15, CREATE_PARTY = 16, INVITE_PARTY = 17, LEAVE_PARTY = 18, KICK_PARTY_MEMBER = 19, JOIN_MATCHMAKING = 20, LEAVE_MATCHMAKING = 21, PARTY_UPDATED = 22, GET_FRIENDS = 23, ADD_FRIEND = 24, REMOVE_FRIEND = 25, FRIEND_UPDATED = 26, GET_PROFILE = 27, ANSWER_PARTY_INVITE = 28
+            AUTH = 1, GET_ROOMS = 2, CREATE_ROOM = 3, JOIN_ROOM = 4, LEAVE_ROOM = 5, DELETE_ROOM = 6, ROOM_UPDATED = 7, KICK_FROM_ROOM = 8, STATUS_IN_ROOM = 9, START_ROOM = 10, SYNC_GAME = 11, SET_HOST = 12, DESTROY_OBJECT = 13, CHANGE_OWNER = 14, CHANGE_OWNER_CONFIRM = 15, CREATE_PARTY = 16, INVITE_PARTY = 17, LEAVE_PARTY = 18, KICK_PARTY_MEMBER = 19, JOIN_MATCHMAKING = 20, LEAVE_MATCHMAKING = 21, PARTY_UPDATED = 22, GET_FRIENDS = 23, ADD_FRIEND = 24, REMOVE_FRIEND = 25, FRIEND_UPDATED = 26, GET_PROFILE = 27, ANSWER_PARTY_INVITE = 28, MATCHMAKING_STARTED = 29, MATCHMAKING_STOPPED = 30, LEAVE_GAME = 31, GAME_STARTED = 32
         }
 
         public static void ReceivedPacket(int clientID, Packet packet)
         {
             int id = packet.ReadInt();
-            if(id == (int)InternalID.SYNC_ROOM_PLAYER)
+            if(id == (int)InternalID.SYNC_GAME)
             {
                 int syScene = packet.ReadInt();
                 int syDataLen1 = packet.ReadInt();
@@ -507,11 +828,12 @@ namespace DevelopersHub.RealtimeNetworking.Server
                         break;
                     case InternalID.CREATE_ROOM:
                         string crRoomPass = packet.ReadString();
-                        int crRoomScene = packet.ReadInt();
+                        int crRoomGame = packet.ReadInt();
+                        int crRoomMap = packet.ReadInt();
                         int crRoomTeam = packet.ReadInt();
                         int crMaxPlayers = packet.ReadInt();
                         packet.Dispose();
-                        _ = CreateRoomAsync(clientID, Server.clients[clientID].accountID, crRoomPass, crRoomScene, crRoomTeam, crMaxPlayers);
+                        _ = CreateRoomAsync(clientID, Server.clients[clientID].accountID, crRoomPass, crRoomGame, crRoomMap, crRoomTeam, crMaxPlayers);
                         break;
                     case InternalID.GET_ROOMS:
                         packet.Dispose();
@@ -603,6 +925,20 @@ namespace DevelopersHub.RealtimeNetworking.Server
                     case InternalID.LEAVE_PARTY:
                         packet.Dispose();
                         _ = LeavePartyAsync(clientID, true);
+                        break;
+                    case InternalID.JOIN_MATCHMAKING:
+                        int gameID = packet.ReadInt();
+                        int mapID = packet.ReadInt();
+                        packet.Dispose();
+                        _ = StartMatchmakingAsync(clientID, gameID, mapID);
+                        break;
+                    case InternalID.LEAVE_MATCHMAKING:
+                        packet.Dispose();
+                        _ = StopMatchmakingAsync(clientID);
+                        break;
+                    case InternalID.LEAVE_GAME:
+                        packet.Dispose();
+                        _ = LeaveGameAsync(clientID, true, true, true);
                         break;
                 }
             }
@@ -879,8 +1215,6 @@ namespace DevelopersHub.RealtimeNetworking.Server
             return profile;
         }
 
-        private static List<Data.Room> rooms = new List<Data.Room>();
-
         private async static void GetRooms(int id)
         {
             byte[] bytes = await Tools.CompressAsync(await Tools.SerializeAsync<List<Data.Room>>(await GetRoomsAsync()));
@@ -898,7 +1232,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 List<Data.Room> _rooms = new List<Data.Room>();
                 for (int i = 0; i < rooms.Count; i++)
                 {
-                    if (rooms[i] == null || rooms[i].started || rooms[i].type != Data.RoomType.HOST_MANAGED) continue;
+                    if (rooms[i] == null) continue;
                     _rooms.Add(rooms[i]);
                 }
                 return _rooms;
@@ -906,16 +1240,16 @@ namespace DevelopersHub.RealtimeNetworking.Server
             return await task;
         }
 
-        private async static Task<int> CreateRoomAsync(int clientID, long account_id, string password, int gameID, int team, int maxPlayers)
+        private async static Task<int> CreateRoomAsync(int clientID, long account_id, string password, int gameID, int mapID, int team, int maxPlayers)
         {
             Task<int> task = Task.Run(() =>
             {
-                return Retry.Do(() => _CreateRoomAsync(clientID, account_id, password, gameID, team, maxPlayers), TimeSpan.FromSeconds(0.1), 1, false);
+                return Retry.Do(() => _CreateRoomAsync(clientID, account_id, password, gameID, mapID, team, maxPlayers), TimeSpan.FromSeconds(0.1), 1, false);
             });
             return await task;
         }
 
-        private static int _CreateRoomAsync(int clientID, long accountID, string password, int gameID, int team, int maxPlayers)
+        private static int _CreateRoomAsync(int clientID, long accountID, string password, int gameID, int mapID, int team, int maxPlayers)
         {
             int response = 0;
             Data.Room room = null;
@@ -925,32 +1259,45 @@ namespace DevelopersHub.RealtimeNetworking.Server
             }
             else
             {
-                if(Server.clients[clientID].player == null)
+                if (Server.clients[clientID].party == null)
                 {
-                    UpdatePlayer(clientID);
-                }
-                if (Server.clients[clientID].player != null)
-                {
-                    room = new Data.Room();
-                    room.id = Guid.NewGuid().ToString();
-                    room.type = Data.RoomType.HOST_MANAGED;
-                    room.started = false;
-                    room.gameID = gameID;
-                    room.hostID = accountID;
-                    room.hostUsername = Server.clients[clientID].player.username;
-                    room.password = password;
-                    if (maxPlayers < 0)
+                    if(Server.clients[clientID].game != null || GetPlayerGame(Server.clients[clientID].accountID) >= 0)
                     {
-                        maxPlayers = 0;
+                        response = 6;
                     }
-                    room.maxPlayers = maxPlayers;
-                    Server.clients[clientID].player.ready = false;
-                    Server.clients[clientID].player.scene = -1;
-                    Server.clients[clientID].player.team = team;
-                    room.players.Add(Server.clients[clientID].player);
-                    Server.clients[clientID].room = room;
-                    rooms.Add(room);
-                    response = 1;
+                    else
+                    {
+                        if (Server.clients[clientID].player == null)
+                        {
+                            UpdatePlayer(clientID);
+                        }
+                        if (Server.clients[clientID].player != null)
+                        {
+                            room = new Data.Room();
+                            room.id = Guid.NewGuid().ToString();
+                            room.gameID = gameID;
+                            room.mapID = mapID;
+                            room.hostID = accountID;
+                            room.hostUsername = Server.clients[clientID].player.username;
+                            room.password = password;
+                            if (maxPlayers < 0)
+                            {
+                                maxPlayers = 0;
+                            }
+                            room.maxPlayers = maxPlayers;
+                            Server.clients[clientID].player.ready = false;
+                            Server.clients[clientID].player.scene = -1;
+                            Server.clients[clientID].player.team = team;
+                            room.players.Add(Server.clients[clientID].player);
+                            Server.clients[clientID].room = room;
+                            rooms.Add(room);
+                            response = 1;
+                        }
+                    }
+                }
+                else
+                {
+                    response = 5;
                 }
             }
             Packet packet = new Packet();
@@ -1003,14 +1350,14 @@ namespace DevelopersHub.RealtimeNetworking.Server
             {
                 try
                 {
-                    if (Server.clients[id].room != null && Server.clients[id].room.started && Server.clients[id].player != null)
+                    if (Server.clients[id].game != null && Server.clients[id].player != null)
                     {
                         int sceneHost = -1;
                         bool checkHost = false;
                         bool setHost = false;
-                        for (int i = 0; i < Server.clients[id].room.sceneHostsKeys.Count; i++)
+                        for (int i = 0; i < Server.clients[id].game.sceneHostsKeys.Count; i++)
                         {
-                            if (Server.clients[id].room.sceneHostsKeys[i] == scene)
+                            if (Server.clients[id].game.sceneHostsKeys[i] == scene)
                             {
                                 sceneHost = i;
                                 break;
@@ -1018,7 +1365,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                         }
                         if(sceneHost >= 0)
                         {
-                            if(Server.clients[id].room.sceneHostsValues[sceneHost] != Server.clients[id].accountID)
+                            if(Server.clients[id].game.sceneHostsValues[sceneHost] != Server.clients[id].accountID)
                             {
                                 checkHost = true;
                             }
@@ -1026,22 +1373,22 @@ namespace DevelopersHub.RealtimeNetworking.Server
                         else
                         {
                             setHost = true;
-                            sceneHost = Server.clients[id].room.sceneHostsKeys.Count;
-                            Server.clients[id].room.sceneHostsKeys.Add(scene);
-                            Server.clients[id].room.sceneHostsValues.Add(Server.clients[id].accountID);
+                            sceneHost = Server.clients[id].game.sceneHostsKeys.Count;
+                            Server.clients[id].game.sceneHostsKeys.Add(scene);
+                            Server.clients[id].game.sceneHostsValues.Add(Server.clients[id].accountID);
                         }
                         Server.clients[id].player.scene = scene;
                         if (checkHost)
                         {
-                            for (int i = 0; i < Server.clients[id].room.players.Count; i++)
+                            for (int i = 0; i < Server.clients[id].game.room.players.Count; i++)
                             {
-                                if (Server.clients[id].room.players[i].id == Server.clients[id].accountID) { continue; }
-                                if (Server.clients[id].room.players[i].id == Server.clients[id].room.sceneHostsValues[sceneHost])
+                                if (Server.clients[id].game.room.players[i].id == Server.clients[id].accountID) { continue; }
+                                if (Server.clients[id].game.room.players[i].id == Server.clients[id].game.sceneHostsValues[sceneHost])
                                 {
-                                    if (Server.clients[id].room.players[i].scene != scene || (DateTime.Now - Server.clients[Server.clients[id].room.players[i].client].lastTick).TotalSeconds > 1d)
+                                    if (Server.clients[id].game.room.players[i].scene != scene || (DateTime.Now - Server.clients[Server.clients[id].game.room.players[i].client].lastTick).TotalSeconds > 1d)
                                     {
                                         setHost = true;
-                                        Server.clients[id].room.sceneHostsValues[sceneHost] = Server.clients[id].accountID;
+                                        Server.clients[id].game.sceneHostsValues[sceneHost] = Server.clients[id].accountID;
                                     }
                                     checkHost = false;
                                     break;
@@ -1051,25 +1398,25 @@ namespace DevelopersHub.RealtimeNetworking.Server
                         if (checkHost)
                         {
                             setHost = true;
-                            Server.clients[id].room.sceneHostsValues[sceneHost] = Server.clients[id].accountID;
+                            Server.clients[id].game.sceneHostsValues[sceneHost] = Server.clients[id].accountID;
                         }
                         if (setHost)
                         {
                             Packet packet = new Packet();
                             packet.Write((int)InternalID.SET_HOST);
                             packet.Write(scene);
-                            packet.Write(Server.clients[id].room.sceneHostsValues[sceneHost]);
+                            packet.Write(Server.clients[id].game.sceneHostsValues[sceneHost]);
                             SendTCPData(id, packet);
                         }
                         Server.clients[id].lastTick = DateTime.Now;
-                        for (int i = 0; i < Server.clients[id].room.players.Count; i++)
+                        for (int i = 0; i < Server.clients[id].game.room.players.Count; i++)
                         {
-                            if (Server.clients[id].room.players[i].id == Server.clients[id].accountID) { continue; }
+                            if (Server.clients[id].game.room.players[i].id == Server.clients[id].accountID) { continue; }
                             Packet packet = new Packet();
-                            packet.Write((int)InternalID.SYNC_ROOM_PLAYER);
+                            packet.Write((int)InternalID.SYNC_GAME);
                             packet.Write(scene);
                             packet.Write(Server.clients[id].accountID);
-                            packet.Write(Server.clients[id].room.sceneHostsValues[sceneHost]);
+                            packet.Write(Server.clients[id].game.sceneHostsValues[sceneHost]);
                             packet.Write(data1 == null ? 0 : data1.Length);
                             packet.Write(data2 == null ? 0 : data2.Length);
                             packet.Write(data3 == null ? 0 : data3.Length);
@@ -1085,7 +1432,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                             {
                                 packet.Write(data3);
                             }
-                            SendUDPData(Server.clients[id].room.players[i].client, packet);
+                            SendUDPData(Server.clients[id].game.room.players[i].client, packet);
                         }
                     }
                 }
@@ -1102,18 +1449,18 @@ namespace DevelopersHub.RealtimeNetworking.Server
             {
                 try
                 {
-                    if (Server.clients[id].room != null && Server.clients[id].room.started && Server.clients[id].player != null)
+                    if (Server.clients[id].game != null && Server.clients[id].player != null)
                     {
-                        for (int i = 0; i < Server.clients[id].room.players.Count; i++)
+                        for (int i = 0; i < Server.clients[id].game.room.players.Count; i++)
                         {
-                            if (Server.clients[id].room.players[i].id == Server.clients[id].accountID) { continue; }
+                            if (Server.clients[id].game.room.players[i].id == Server.clients[id].accountID) { continue; }
                             Packet packet = new Packet();
                             packet.Write((int)InternalID.DESTROY_OBJECT);
                             packet.Write(scene);
                             packet.Write(Server.clients[id].accountID);
                             packet.Write(objectID);
                             packet.Write(position);
-                            SendTCPData(Server.clients[id].room.players[i].client, packet);
+                            SendTCPData(Server.clients[id].game.room.players[i].client, packet);
                         }
                     }
                 }
@@ -1130,12 +1477,12 @@ namespace DevelopersHub.RealtimeNetworking.Server
             {
                 try
                 {
-                    if (Server.clients[id].room != null && Server.clients[id].room.started && Server.clients[id].player != null)
+                    if (Server.clients[id].game != null && Server.clients[id].player != null)
                     {
                         int sceneHost = -1;
-                        for (int i = 0; i < Server.clients[id].room.sceneHostsKeys.Count; i++)
+                        for (int i = 0; i < Server.clients[id].game.sceneHostsKeys.Count; i++)
                         {
-                            if (Server.clients[id].room.sceneHostsKeys[i] == scene)
+                            if (Server.clients[id].game.sceneHostsKeys[i] == scene)
                             {
                                 sceneHost = i;
                                 break;
@@ -1143,9 +1490,9 @@ namespace DevelopersHub.RealtimeNetworking.Server
                         }
                         if (sceneHost >= 0)
                         {
-                            for (int i = 0; i < Server.clients[id].room.players.Count; i++)
+                            for (int i = 0; i < Server.clients[id].game.room.players.Count; i++)
                             {
-                                if (Server.clients[id].room.players[i].id != Server.clients[id].room.sceneHostsValues[sceneHost]) { continue; }
+                                if (Server.clients[id].game.room.players[i].id != Server.clients[id].game.sceneHostsValues[sceneHost]) { continue; }
                                 Packet packet = new Packet();
                                 packet.Write((int)InternalID.CHANGE_OWNER);
                                 packet.Write(scene);
@@ -1153,7 +1500,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                                 packet.Write(objects.Length);
                                 packet.Write(objects);
                                 packet.Write(newOwner);
-                                SendTCPData(Server.clients[id].room.players[i].client, packet);
+                                SendTCPData(Server.clients[id].game.room.players[i].client, packet);
                                 break;
                             }
                         }
@@ -1172,9 +1519,9 @@ namespace DevelopersHub.RealtimeNetworking.Server
             {
                 try
                 {
-                    if (Server.clients[id].room != null && Server.clients[id].room.started && Server.clients[id].player != null)
+                    if (Server.clients[id].game != null && Server.clients[id].player != null)
                     {
-                        for (int i = 0; i < Server.clients[id].room.players.Count; i++)
+                        for (int i = 0; i < Server.clients[id].game.room.players.Count; i++)
                         {
                             Packet packet = new Packet();
                             packet.Write((int)InternalID.CHANGE_OWNER_CONFIRM);
@@ -1182,8 +1529,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                             packet.Write(objectID);
                             packet.Write(position);
                             packet.Write(newOwner);
-                            SendTCPData(Server.clients[id].room.players[i].client, packet);
-                            break;
+                            SendTCPData(Server.clients[id].game.room.players[i].client, packet);
                         }
                     }
                 }
@@ -1208,6 +1554,24 @@ namespace DevelopersHub.RealtimeNetworking.Server
             }
             return null;
         }
+        
+        private static int GetPlayerGame(long accountID)
+        {
+            for (int i = 0; i < games.Count; i++)
+            {
+                if(games[i].room != null)
+                {
+                    for (int j = 0; j < games[i].room.players.Count; j++)
+                    {
+                        if (games[i].room.players[j].id == accountID)
+                        {
+                            return i;
+                        }
+                    }
+                }
+            }
+            return -1;
+        }
 
         private async static Task<int> JoinRoomAsync(int clientID, long accountID, string roomID, string password, int team)
         {
@@ -1225,7 +1589,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
 
         public enum PartyUpdateType
         {
-            PLAYER_JOINED = 1, PLAYER_LEFT = 2, PLAYER_KICKED = 3, MATCHMAKING_STARTED = 4, MATCHMAKING_STOPPED = 5
+            PLAYER_JOINED = 1, PLAYER_LEFT = 2, PLAYER_KICKED = 3
         }
 
         private static int _JoinRoomAsync(int clientID, long accountID, string roomID, string password, int team, bool notifyCallerInUpdate = true)
@@ -1239,50 +1603,59 @@ namespace DevelopersHub.RealtimeNetworking.Server
             }
             else
             {
-                for (int i = 0; i < rooms.Count; i++)
+                if (Server.clients[clientID].party == null)
                 {
-                    if (rooms[i].id == roomID) 
+                    if (Server.clients[clientID].game != null || GetPlayerGame(Server.clients[clientID].accountID) >= 0)
                     {
-                        if(rooms[i].maxPlayers > 0 && rooms[i].maxPlayers > rooms[i].players.Count)
+                        response = 9;
+                    }
+                    else
+                    {
+                        for (int i = 0; i < rooms.Count; i++)
                         {
-                            if(rooms[i].started)
+                            if (rooms[i].id == roomID)
                             {
-                                // Already Started
-                                response = 7;
-                            }
-                            else if (string.IsNullOrEmpty(rooms[i].password) || rooms[i].password == password)
-                            {
-                                room = rooms[i];
-                            }
-                            else
-                            {
-                                // Wrong Password
-                                response = 5;
+                                if (rooms[i].maxPlayers > 0 && rooms[i].maxPlayers > rooms[i].players.Count)
+                                {
+                                    if (string.IsNullOrEmpty(rooms[i].password) || rooms[i].password == password)
+                                    {
+                                        room = rooms[i];
+                                    }
+                                    else
+                                    {
+                                        // Wrong Password
+                                        response = 5;
+                                    }
+                                }
+                                else
+                                {
+                                    // Full Capacity
+                                    response = 6;
+                                }
+                                break;
                             }
                         }
-                        else
+                        if (room != null)
                         {
-                            // Full Capacity
-                            response = 6;
+                            if (Server.clients[clientID].player == null)
+                            {
+                                UpdatePlayer(clientID);
+                            }
+                            if (Server.clients[clientID].player != null)
+                            {
+                                Server.clients[clientID].player.scene = -1;
+                                Server.clients[clientID].player.ready = false;
+                                Server.clients[clientID].player.team = team;
+                                room.players.Add(Server.clients[clientID].player);
+                                Server.clients[clientID].room = room;
+                                response = 1;
+                            }
                         }
-                        break;
                     }
                 }
-                if(room != null)
+                else
                 {
-                    if (Server.clients[clientID].player == null)
-                    {
-                        UpdatePlayer(clientID);
-                    }
-                    if (Server.clients[clientID].player != null)
-                    {
-                        Server.clients[clientID].player.scene = -1;
-                        Server.clients[clientID].player.ready = false;
-                        Server.clients[clientID].player.team = team;
-                        room.players.Add(Server.clients[clientID].player);
-                        Server.clients[clientID].room = room;
-                        response = 1;
-                    }
+                    response = 8;
                 }
             }
             Packet packet = new Packet();
@@ -1331,7 +1704,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
             }
             else
             {
-                if((room.hostID == Server.clients[clientID].accountID && room.type == Data.RoomType.HOST_MANAGED && !room.started) || (room.started && room.players.Count <= 1))
+                if(room.hostID == Server.clients[clientID].accountID || room.players.Count <= 1)
                 {
                     response = 1;
                 }
@@ -1399,7 +1772,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
             }
             else
             {
-                if ((room.hostID == Server.clients[clientID].accountID && room.type == Data.RoomType.HOST_MANAGED && !room.started) || (room.started && room.players.Count <= 1))
+                if (room.hostID == Server.clients[clientID].accountID || room.players.Count <= 1)
                 {
                     deleted = (_DeleteRoomAsync(clientID, true, notifyCallerInUpdate, notifyCaller) == 1);
                 }
@@ -1459,6 +1832,66 @@ namespace DevelopersHub.RealtimeNetworking.Server
             return response;
         }
 
+        private async static Task<int> LeaveGameAsync(int clientID, bool respond = false, bool notifySelf = true, bool notifyOthers = true)
+        {
+            Task<int> task = Task.Run(() =>
+            {
+                return Retry.Do(() => _LeaveGameAsync(clientID, respond, notifySelf, notifyOthers), TimeSpan.FromSeconds(0.1), 5, false);
+            });
+            return await task;
+        }
+
+        private static int _LeaveGameAsync(int clientID, bool respond = false, bool notifySelf = true, bool notifyOthers = true)
+        {
+            int response = 0;
+            if(Server.clients[clientID].game != null)
+            {
+                response = 1;
+                for (int i = 0; i < games.Count; i++)
+                {
+                    if (games[i].room != null)
+                    {
+                        for (int j = 0; j < games[i].room.players.Count; j++)
+                        {
+                            if (games[i].room.players[j].id == Server.clients[clientID].accountID)
+                            {
+                                games[i].room.players.RemoveAt(j);
+                                if (games[i].room.players.Count <= 0)
+                                {
+                                    games.RemoveAt(i);
+                                }
+                                else
+                                {
+                                    if (notifyOthers)
+                                    {
+                                        // ToDo: Notify other players in the game
+                                    }
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+                Server.clients[clientID].game = null;
+                if(response == 1 && notifySelf)
+                {
+                    // ToDo: Notify yourself with the same packet id as other players in the game
+                }
+            }
+            else
+            {
+                response = 4;
+            }
+            if (respond)
+            {
+                Packet packet = new Packet();
+                packet.Write((int)InternalID.LEAVE_GAME);
+                packet.Write(response);
+                SendTCPData(clientID, packet);
+            }
+            return response;
+        }
+
         private async static Task<int> KickFromRoomAsync(int clientID, long targetID)
         {
             Task<int> task = Task.Run(() =>
@@ -1480,7 +1913,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
             }
             else
             {
-                if (room.hostID == Server.clients[clientID].accountID && room.type == Data.RoomType.HOST_MANAGED && !room.started && Server.clients[clientID].accountID != targetID)
+                if (room.hostID == Server.clients[clientID].accountID && Server.clients[clientID].accountID != targetID)
                 {
                     for (int i = 0; i < room.players.Count; i++)
                     {
@@ -1625,6 +2058,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
         {
             int response = 0;
             Data.Room room = GetPlayerRoom(Server.clients[clientID].accountID);
+            Data.Game game = null;
             if (room == null)
             {
                 // Not in Any Room
@@ -1632,18 +2066,27 @@ namespace DevelopersHub.RealtimeNetworking.Server
             }
             else
             {
-                if (room.hostID == Server.clients[clientID].accountID && room.type == Data.RoomType.HOST_MANAGED)
+                if (room.hostID == Server.clients[clientID].accountID)
                 {
-                    if(room.started)
+                    game = new Data.Game();
+                    game.room = room;
+                    game.type = Data.GameType.HOSTED;
+                    game.start = DateTime.Now;
+                    for (int i = game.room.players.Count - 1; i >= 0; i--)
                     {
-                        // Already Started
-                        response = 6;
+                        if(Server.clients[game.room.players[i].client].game != null)
+                        {
+                            Server.clients[game.room.players[i].client].room = null;
+                            game.room.players.RemoveAt(i);
+                        }
+                        else
+                        {
+                            Server.clients[game.room.players[i].client].game = game;
+                        }
                     }
-                    else
-                    {
-                        room.started = true;
-                        response = 1;
-                    }
+                    games.Add(game);
+                    rooms.Remove(room);
+                    response = 1;
                 }
                 else
                 {
@@ -1656,24 +2099,24 @@ namespace DevelopersHub.RealtimeNetworking.Server
             packet.Write(response);
             if (response == 1)
             {
-                byte[] playerBytes = Tools.Compress(Tools.Serialize<Data.Player>(Server.clients[clientID].player));
-                byte[] bytes = Tools.Compress(Tools.Serialize<Data.Room>(room));
+                // byte[] playerBytes = Tools.Compress(Tools.Serialize<Data.Player>(Server.clients[clientID].player));
+                byte[] bytes = Tools.Compress(Tools.Serialize<Data.Game>(game));
                 for (int i = 0; i < room.players.Count; i++)
                 {
                     if (room.players[i].id == Server.clients[clientID].accountID && !notifyCallerInUpdate) { continue; }
                     Packet othersPacket = new Packet();
-                    othersPacket.Write((int)InternalID.ROOM_UPDATED);
-                    othersPacket.Write((int)RoomUpdateType.GAME_STARTED);
+                    othersPacket.Write((int)InternalID.GAME_STARTED);
                     othersPacket.Write(bytes.Length);
                     othersPacket.Write(bytes);
-                    othersPacket.Write(playerBytes.Length);
-                    othersPacket.Write(playerBytes);
+                    // othersPacket.Write(playerBytes.Length);
+                    // othersPacket.Write(playerBytes);
                     SendTCPData(room.players[i].client, othersPacket);
                 }
             }
             SendTCPData(clientID, packet);
             return response;
         }
+        #endregion
 
     }
 }

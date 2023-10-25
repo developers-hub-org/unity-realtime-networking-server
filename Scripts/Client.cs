@@ -19,6 +19,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
         public Data.Room room = null;
         public Data.Player player = null;
         public Data.Party party = null;
+        public Data.Game game = null;
         public DateTime lastTick = DateTime.Now;
 
         public Client(int _clientId)
