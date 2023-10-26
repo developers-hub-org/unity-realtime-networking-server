@@ -57,6 +57,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
             return "0.0.0.0";
         }
 
+        /*
         public static string GetExternalIP()
         {
             try
@@ -78,6 +79,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 }
             }
         }
+        */
 
         public static int FindFreeTcpPort()
         {
@@ -103,6 +105,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
         }
 
         #region Encryption
+        /*
         public static string EncrypteToMD5(string data)
         {
             UTF8Encoding ue = new UTF8Encoding();
@@ -115,6 +118,20 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 hashString = hashString + Convert.ToString(hashBytes[i], 16).PadLeft(2, '0');
             }
             return hashString.PadLeft(32, '0');
+        }
+        */
+
+        public static string EncrypteToMD5(string data)
+        {
+            MD5 md5 = MD5.Create();
+            byte[] bytes = Encoding.Default.GetBytes(data);
+            byte[] encoded = md5.ComputeHash(bytes);
+            StringBuilder builder = new StringBuilder();
+            for (int i = 0; i < encoded.Length; i++)
+            {
+                builder.Append(encoded[i].ToString("x2"));
+            }
+            return builder.ToString();
         }
         #endregion
 

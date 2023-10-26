@@ -13,7 +13,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
         {
             get
             {
-                return new SqliteConnection("Data Source = " + Terminal.sqlite_database_path + "");
+                return new SqliteConnection("Data Source = " + Terminal.sqlite_database_file_path + "");
             }
         }
 
@@ -52,14 +52,14 @@ namespace DevelopersHub.RealtimeNetworking.Server
             {
                 try
                 {
-                    if (!File.Exists(Terminal.sqlite_database_path))
+                    if (!File.Exists(Terminal.sqlite_database_file_path))
                     {
-                        string directory = Path.GetDirectoryName(Terminal.sqlite_database_path);
+                        string directory = Path.GetDirectoryName(Terminal.sqlite_database_file_path);
                         if (!Directory.Exists(directory))
                         {
                             Directory.CreateDirectory(directory);
                         }
-                        FileStream fileStream = File.Create(Terminal.sqlite_database_path);
+                        FileStream fileStream = File.Create(Terminal.sqlite_database_file_path);
                         return true;
                     }
                 }

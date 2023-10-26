@@ -1,13 +1,9 @@
-﻿using MySqlX.XDevAPI;
-using Org.BouncyCastle.Bcpg;
-using Org.BouncyCastle.Utilities;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
-using static DevelopersHub.RealtimeNetworking.Server.Data;
 
 namespace DevelopersHub.RealtimeNetworking.Server
 {
@@ -72,14 +68,10 @@ namespace DevelopersHub.RealtimeNetworking.Server
             List<MatchData> readyMatches = new List<MatchData>();
             for (int i = 0; i < parties.Count; i++)
             {
-                if (parties[i].matched)
-                {
-                    continue;
-                }
                 bool added = false;
                 for (int j = 0; j < searchingMatches.Count; j++)
                 {
-                    if (searchingMatches[j].teamsPerMatch == parties[i].teamsPerMatch && searchingMatches[j].playersPerTeam == parties[i].playersPerTeam && searchingMatches[j].gameID == parties[i].gameID && searchingMatches[j].mapID == parties[i].mapID)
+                    if (searchingMatches[j].extension == parties[i].extension && searchingMatches[j].teamsPerMatch == parties[i].teamsPerMatch && searchingMatches[j].playersPerTeam == parties[i].playersPerTeam && searchingMatches[j].gameID == parties[i].gameID && searchingMatches[j].mapID == parties[i].mapID)
                     {
                         for (int k = 0; k < searchingMatches[j].teams.Length; k++)
                         {
@@ -114,6 +106,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                     data.playersPerTeam = parties[i].playersPerTeam;
                     data.gameID = parties[i].gameID;
                     data.mapID = parties[i].mapID;
+                    data.extension = parties[i].extension;
                     data.addedPlayers = 0;
                     data.teams = new MatchTeam[data.teamsPerMatch];
                     for (int k = 0; k < data.teams.Length; k++)
@@ -140,10 +133,12 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 game.room.gameID = readyMatches[i].gameID;
                 game.room.mapID = readyMatches[i].mapID;
                 game.room.maxPlayers = readyMatches[i].addedPlayers;
+                game.extension = readyMatches[i].extension;
                 for (int j = 0; j < readyMatches[i].teams.Length; j++)
                 {
                     for (int k = 0; k < readyMatches[i].teams[j].parties.Count; k++)
                     {
+                        parties.Remove(readyMatches[i].teams[j].parties[k]);
                         for (int l = 0; l < readyMatches[i].teams[j].parties[k].players.Count; l++)
                         {
                             readyMatches[i].teams[j].parties[k].players[l].team = j + 1;
@@ -156,14 +151,22 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 game.room.hostUsername = game.room.players[0].username;
                 game.room.id = Guid.NewGuid().ToString();
                 game.start = DateTime.Now;
-                byte[] bytes = Tools.Compress(Tools.Serialize<Data.Game>(game));
-                for (int j = 0; j < game.room.players.Count; j++)
+                if(game.extension == Data.Extension.NETCODE)
                 {
-                    Packet packet = new Packet();
-                    packet.Write((int)InternalID.GAME_STARTED);
-                    packet.Write(bytes.Length);
-                    packet.Write(bytes);
-                    SendTCPData(game.room.players[j].client, packet);
+                    Netcode.StartGame(game);
+                }
+                else
+                {
+                    games.Add(game);
+                    byte[] bytes = Tools.Compress(Tools.Serialize<Data.Game>(game));
+                    for (int j = 0; j < game.room.players.Count; j++)
+                    {
+                        Packet packet = new Packet();
+                        packet.Write((int)InternalID.GAME_STARTED);
+                        packet.Write(bytes.Length);
+                        packet.Write(bytes);
+                        SendTCPData(game.room.players[j].client, packet);
+                    }
                 }
             }
         }
@@ -172,6 +175,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
         {
             public int gameID = 0;
             public int mapID = 0;
+            public Data.Extension extension = Data.Extension.NONE;
             public int teamsPerMatch = 2;
             public int playersPerTeam = 6;
             public int addedPlayers = 0;
@@ -183,23 +187,22 @@ namespace DevelopersHub.RealtimeNetworking.Server
             public List<Data.Party> parties =  new List<Data.Party>();
         }
 
-        private async static Task<int> StartMatchmakingAsync(int clientID, int gameID, int mapID)
+        private async static Task<int> StartMatchmakingAsync(int clientID, int gameID, int mapID, Data.Extension extension)
         {
             Task<int> task = Task.Run(() =>
             {
-                return _StartMatchmakingAsync(clientID, gameID, mapID);
+                return _StartMatchmakingAsync(clientID, gameID, mapID, extension);
             });
             return await task;
         }
 
-        private static int _StartMatchmakingAsync(int clientID, int gameID, int mapID)
+        private static int _StartMatchmakingAsync(int clientID, int gameID, int mapID, Data.Extension extension)
         {
             int response = 0;
             if (Server.clients[clientID].party == null)
             {
                 Server.clients[clientID].party = new Data.Party();
                 Server.clients[clientID].party.id = Guid.NewGuid().ToString();
-                Server.clients[clientID].party.matched = false;
                 Server.clients[clientID].party.auto = true;
                 Server.clients[clientID].party.leaderID = Server.clients[clientID].accountID;
                 Server.clients[clientID].party.maxPlayers = 1;
@@ -209,9 +212,10 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 }
                 Server.clients[clientID].party.players.Add(Server.clients[clientID].player);
             }
+            Server.clients[clientID].party.extension = extension;
             if (!parties.Contains(Server.clients[clientID].party))
             {
-                if (!Server.clients[clientID].party.matched)
+                if (!Server.clients[clientID].party.matchmaking)
                 {
                     if (Server.clients[clientID].party.leaderID == Server.clients[clientID].accountID)
                     {
@@ -284,7 +288,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
             {
                 if (parties.Contains(Server.clients[clientID].party))
                 {
-                    if (!Server.clients[clientID].party.matched)
+                    if (Server.clients[clientID].party.matchmaking)
                     {
                         if (Server.clients[clientID].party.leaderID == Server.clients[clientID].accountID)
                         {
@@ -532,7 +536,6 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 {
                     Server.clients[clientID].party = new Data.Party();
                     Server.clients[clientID].party.id = Guid.NewGuid().ToString();
-                    Server.clients[clientID].party.matched = false;
                     Server.clients[clientID].party.auto = false;
                     Server.clients[clientID].party.matchmaking = false;
                     Server.clients[clientID].party.leaderID = Server.clients[clientID].accountID;
@@ -782,9 +785,9 @@ namespace DevelopersHub.RealtimeNetworking.Server
             return 0;
         }
 
-        private enum InternalID
+        public enum InternalID
         {
-            AUTH = 1, GET_ROOMS = 2, CREATE_ROOM = 3, JOIN_ROOM = 4, LEAVE_ROOM = 5, DELETE_ROOM = 6, ROOM_UPDATED = 7, KICK_FROM_ROOM = 8, STATUS_IN_ROOM = 9, START_ROOM = 10, SYNC_GAME = 11, SET_HOST = 12, DESTROY_OBJECT = 13, CHANGE_OWNER = 14, CHANGE_OWNER_CONFIRM = 15, CREATE_PARTY = 16, INVITE_PARTY = 17, LEAVE_PARTY = 18, KICK_PARTY_MEMBER = 19, JOIN_MATCHMAKING = 20, LEAVE_MATCHMAKING = 21, PARTY_UPDATED = 22, GET_FRIENDS = 23, ADD_FRIEND = 24, REMOVE_FRIEND = 25, FRIEND_UPDATED = 26, GET_PROFILE = 27, ANSWER_PARTY_INVITE = 28, MATCHMAKING_STARTED = 29, MATCHMAKING_STOPPED = 30, LEAVE_GAME = 31, GAME_STARTED = 32
+            AUTH = 1, GET_ROOMS = 2, CREATE_ROOM = 3, JOIN_ROOM = 4, LEAVE_ROOM = 5, DELETE_ROOM = 6, ROOM_UPDATED = 7, KICK_FROM_ROOM = 8, STATUS_IN_ROOM = 9, START_ROOM = 10, SYNC_GAME = 11, SET_HOST = 12, DESTROY_OBJECT = 13, CHANGE_OWNER = 14, CHANGE_OWNER_CONFIRM = 15, CREATE_PARTY = 16, INVITE_PARTY = 17, LEAVE_PARTY = 18, KICK_PARTY_MEMBER = 19, JOIN_MATCHMAKING = 20, LEAVE_MATCHMAKING = 21, PARTY_UPDATED = 22, GET_FRIENDS = 23, ADD_FRIEND = 24, REMOVE_FRIEND = 25, ANSWER_FRIEND = 26, GET_PROFILE = 27, ANSWER_PARTY_INVITE = 28, MATCHMAKING_STARTED = 29, MATCHMAKING_STOPPED = 30, LEAVE_GAME = 31, GAME_STARTED = 32, NETCODE_INIT = 33, NETCODE_STARTED = 34, FRIEND_REQUESTS = 35
         }
 
         public static void ReceivedPacket(int clientID, Packet packet)
@@ -865,8 +868,9 @@ namespace DevelopersHub.RealtimeNetworking.Server
                         _ = ChangeRoomStatusAsync(clientID, stRoomRdy);
                         break;
                     case InternalID.START_ROOM:
+                        int stEx = packet.ReadInt();
                         packet.Dispose();
-                        _ = StartRoomAsync(clientID);
+                        _ = StartRoomAsync(clientID, (Data.Extension)stEx);
                         break;
                     case InternalID.DESTROY_OBJECT:
                         int dsScene = packet.ReadInt();
@@ -901,6 +905,27 @@ namespace DevelopersHub.RealtimeNetworking.Server
                         packet.Dispose();
                         _ = GetFriendsAsync(clientID);
                         break;
+                    case InternalID.ADD_FRIEND:
+                        long afID = packet.ReadLong();
+                        packet.Dispose();
+                        _ = AddFriendAsync(clientID, afID);
+                        break;
+                    case InternalID.REMOVE_FRIEND:
+                        long rfID = packet.ReadLong();
+                        packet.Dispose();
+                        _ = RemoveFriendAsync(clientID, rfID);
+                        break;
+                    case InternalID.ANSWER_FRIEND:
+                        long wfID = packet.ReadLong();
+                        bool wfRes = packet.ReadBool();
+                        packet.Dispose();
+                        _ = AnswerFriendAsync(clientID, wfID, wfRes);
+                        break;
+                    case InternalID.FRIEND_REQUESTS:
+                        bool fqSelf = packet.ReadBool();
+                        packet.Dispose();
+                        _ = GetFriendRequestsAsync(clientID, fqSelf);
+                        break;
                     case InternalID.GET_PROFILE:
                         int gpID = packet.ReadInt();
                         packet.Dispose();
@@ -929,8 +954,9 @@ namespace DevelopersHub.RealtimeNetworking.Server
                     case InternalID.JOIN_MATCHMAKING:
                         int gameID = packet.ReadInt();
                         int mapID = packet.ReadInt();
+                        int mapEx = packet.ReadInt();
                         packet.Dispose();
-                        _ = StartMatchmakingAsync(clientID, gameID, mapID);
+                        _ = StartMatchmakingAsync(clientID, gameID, mapID, (Data.Extension)mapEx);
                         break;
                     case InternalID.LEAVE_MATCHMAKING:
                         packet.Dispose();
@@ -944,7 +970,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
             }
         }
 
-        private static void SendTCPData(int clientID, Packet packet)
+        public static void SendTCPData(int clientID, Packet packet)
         {
             if(packet == null)
             {
@@ -1156,6 +1182,272 @@ namespace DevelopersHub.RealtimeNetworking.Server
             return response;
         }
         
+        private async static Task<int> GetFriendRequestsAsync(int clientID, bool self)
+        {
+            Task<int> task = Task.Run(() =>
+            {
+                return Retry.Do(() => _GetFriendRequestsAsync(clientID, self), TimeSpan.FromSeconds(0.1), 5, false);
+            });
+            return await task;
+        }
+
+        private static int _GetFriendRequestsAsync(int clientID, bool self)
+        {
+            List<Data.FriendRequest> requests = new List<Data.FriendRequest>();
+            int response = 0;
+            using (var connection = Sqlite.connection)
+            {
+                connection.Open();
+                using (var command = connection.CreateCommand())
+                {
+                    if (self)
+                    {
+                        command.CommandText = string.Format(@"SELECT accounts.id, accounts.username, accounts.client_index, friends.action_time FROM friends LEFT JOIN accounts ON accounts.id = friends.account_id_2 WHERE friends.account_id_1 = {0} AND friends.status <= 0;", Server.clients[clientID].accountID);
+                    }
+                    else
+                    {
+                        command.CommandText = string.Format(@"SELECT friends.id AS request, accounts.id, accounts.username, accounts.client_index, friends.action_time FROM friends LEFT JOIN accounts ON accounts.id = friends.account_id_1 WHERE friends.account_id_2 = {0} AND friends.status <= 0;", Server.clients[clientID].accountID);
+                    }
+                    using (var reader = command.ExecuteReader())
+                    {
+                        if (reader.HasRows)
+                        {
+                            while (reader.Read())
+                            {
+                                Data.FriendRequest request = new Data.FriendRequest();
+                                request.id = reader.GetInt64("request");
+                                request.playerID = reader.GetInt64("id");
+                                request.username = reader.GetString("username");
+                                request.online = reader.GetInt32("client_index") >= 0;
+                                request.time = reader.GetDateTime("action_time");
+                                requests.Add(request);
+                            }
+                        }
+                    }
+                }
+                connection.Close();
+            }
+            response = requests.Count;
+            Packet packet = new Packet();
+            packet.Write((int)InternalID.FRIEND_REQUESTS);
+            packet.Write(response);
+            packet.Write(self);
+            if (response > 0)
+            {
+                byte[] data = Tools.Compress(Tools.Serialize<List<Data.FriendRequest>>(requests));
+                packet.Write(data.Length);
+                packet.Write(data);
+            }
+            SendTCPData(clientID, packet);
+            return response;
+        }
+
+        private async static Task<int> AddFriendAsync(int clientID, long id)
+        {
+            Task<int> task = Task.Run(() =>
+            {
+                return Retry.Do(() => _AddFriendAsyncAsync(clientID, id), TimeSpan.FromSeconds(0.1), 5, false);
+            });
+            return await task;
+        }
+
+        private static int _AddFriendAsyncAsync(int clientID, long id)
+        {
+            int response = 0;
+            if(id != Server.clients[clientID].accountID && Server.clients[clientID].accountID >= 0)
+            {
+                using (var connection = Sqlite.connection)
+                {
+                    connection.Open();
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = string.Format(@"SELECT id FROM accounts WHERE id = {0};", id);
+                        using (var reader = command.ExecuteReader())
+                        {
+                            if (!reader.HasRows)
+                            {
+                                response = 4;
+                            }
+                        }
+                    }
+                    if (response == 0)
+                    {
+                        using (var command = connection.CreateCommand())
+                        {
+                            command.CommandText = string.Format(@"SELECT status FROM friends WHERE (account_id_1 = {0} AND account_id_2 = {1}) OR (account_id_1 = {1} AND account_id_2 = {0});", Server.clients[clientID].accountID, id);
+                            using (var reader = command.ExecuteReader())
+                            {
+                                if (reader.HasRows)
+                                {
+                                    while (reader.Read())
+                                    {
+                                        int status = reader.GetInt32("status");
+                                        if (status > 0)
+                                        {
+                                            response = 6;
+                                        }
+                                        else
+                                        {
+                                            response = 5;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if (response == 0)
+                        {
+                            using (var command = connection.CreateCommand())
+                            {
+                                command.CommandText = string.Format(@"INSERT INTO friends WHERE (account_id_1, account_id_2) VALUES({0}, {1});", Server.clients[clientID].accountID, id);
+                                command.ExecuteNonQuery();
+                                response = 1;
+                            }
+                        }
+                    } 
+                    connection.Close();
+                }
+            }
+            Packet packet = new Packet();
+            packet.Write((int)InternalID.ADD_FRIEND);
+            packet.Write(response);
+            SendTCPData(clientID, packet);
+            return response;
+        }
+
+        private async static Task<int> RemoveFriendAsync(int clientID, long id)
+        {
+            Task<int> task = Task.Run(() =>
+            {
+                return Retry.Do(() => _RemoveFriendAsyncAsync(clientID, id), TimeSpan.FromSeconds(0.1), 5, false);
+            });
+            return await task;
+        }
+
+        private static int _RemoveFriendAsyncAsync(int clientID, long id)
+        {
+            int response = 0;
+            if (id != Server.clients[clientID].accountID && Server.clients[clientID].accountID >= 0)
+            {
+                using (var connection = Sqlite.connection)
+                {
+                    connection.Open();
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = string.Format(@"SELECT id FROM accounts WHERE id = {0};", id);
+                        using (var reader = command.ExecuteReader())
+                        {
+                            if (!reader.HasRows)
+                            {
+                                response = 4;
+                            }
+                        }
+                    }
+                    if (response == 0)
+                    {
+                        long friendshipID = -1;
+                        using (var command = connection.CreateCommand())
+                        {
+                            command.CommandText = string.Format(@"SELECT id FROM friends WHERE (account_id_1 = {0} AND account_id_2 = {1}) OR (account_id_1 = {1} AND account_id_2 = {0});", Server.clients[clientID].accountID, id);
+                            using (var reader = command.ExecuteReader())
+                            {
+                                if (reader.HasRows)
+                                {
+                                    while (reader.Read())
+                                    {
+                                        friendshipID = reader.GetInt64("id");
+                                    }
+                                }
+                            }
+                        }
+                        if (friendshipID >= 0)
+                        {
+                            using (var command = connection.CreateCommand())
+                            {
+                                command.CommandText = string.Format(@"DELETE FROM friends WHERE id = {0};", friendshipID);
+                                command.ExecuteNonQuery();
+                                response = 1;
+                            }
+                        }
+                        else
+                        {
+                            response = 5;
+                        }
+                    }
+                    connection.Close();
+                }
+            }
+            Packet packet = new Packet();
+            packet.Write((int)InternalID.REMOVE_FRIEND);
+            packet.Write(response);
+            SendTCPData(clientID, packet);
+            return response;
+        }
+
+        private async static Task<int> AnswerFriendAsync(int clientID, long id, bool accept)
+        {
+            Task<int> task = Task.Run(() =>
+            {
+                return Retry.Do(() => _AnswerFriendAsync(clientID, id, accept), TimeSpan.FromSeconds(0.1), 5, false);
+            });
+            return await task;
+        }
+
+        private static int _AnswerFriendAsync(int clientID, long id, bool accept)
+        {
+            int response = 0;
+            if (id != Server.clients[clientID].accountID && Server.clients[clientID].accountID >= 0)
+            {
+                using (var connection = Sqlite.connection)
+                {
+                    connection.Open();
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = string.Format(@"SELECT account_id_1 FROM friends WHERE id = {0} AND status <= 0;", id);
+                        using (var reader = command.ExecuteReader())
+                        {
+                            if (!reader.HasRows)
+                            {
+                                response = 4;
+                            }
+                            else
+                            {
+                                while (reader.Read())
+                                {
+                                    long senderID = reader.GetInt64("account_id_1");
+                                    if (senderID == Server.clients[clientID].accountID)
+                                    {
+                                        response = 4;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (response == 0)
+                    {
+                        using (var command = connection.CreateCommand())
+                        {
+                            if (accept)
+                            {
+                                command.CommandText = string.Format(@"UPDATE friends SET status = 1, action_time = CURRENT_TIMESTAMP WHERE id = {0};", id);
+                            }
+                            else
+                            {
+                                command.CommandText = string.Format(@"DELETE FROM friends WHERE id = {0};", id);
+                            }
+                            command.ExecuteNonQuery();
+                            response = 1;
+                        }
+                    }
+                    connection.Close();
+                }
+            }
+            Packet packet = new Packet();
+            packet.Write((int)InternalID.ANSWER_FRIEND);
+            packet.Write(response);
+            SendTCPData(clientID, packet);
+            return response;
+        }
+
         private async static Task<int> GetPlayerAsync(int clientID, long accountID)
         {
             Task<int> task = Task.Run(() =>
@@ -2045,16 +2337,16 @@ namespace DevelopersHub.RealtimeNetworking.Server
             return response;
         }
 
-        private async static Task<int> StartRoomAsync(int clientID)
+        private async static Task<int> StartRoomAsync(int clientID, Data.Extension extension)
         {
             Task<int> task = Task.Run(() =>
             {
-                return Retry.Do(() => _StartRoomAsync(clientID), TimeSpan.FromSeconds(0.1), 5, false);
+                return Retry.Do(() => _StartRoomAsync(clientID, extension), TimeSpan.FromSeconds(0.1), 5, false);
             });
             return await task;
         }
 
-        private static int _StartRoomAsync(int clientID, bool notifyCallerInUpdate = true)
+        private static int _StartRoomAsync(int clientID, Data.Extension extension, bool notifyCallerInUpdate = true)
         {
             int response = 0;
             Data.Room room = GetPlayerRoom(Server.clients[clientID].accountID);
@@ -2072,6 +2364,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                     game.room = room;
                     game.type = Data.GameType.HOSTED;
                     game.start = DateTime.Now;
+                    game.extension = extension;
                     for (int i = game.room.players.Count - 1; i >= 0; i--)
                     {
                         if(Server.clients[game.room.players[i].client].game != null)
@@ -2084,7 +2377,10 @@ namespace DevelopersHub.RealtimeNetworking.Server
                             Server.clients[game.room.players[i].client].game = game;
                         }
                     }
-                    games.Add(game);
+                    if (game.extension == Data.Extension.NONE)
+                    {
+                        games.Add(game);
+                    }
                     rooms.Remove(room);
                     response = 1;
                 }
@@ -2099,23 +2395,31 @@ namespace DevelopersHub.RealtimeNetworking.Server
             packet.Write(response);
             if (response == 1)
             {
-                // byte[] playerBytes = Tools.Compress(Tools.Serialize<Data.Player>(Server.clients[clientID].player));
-                byte[] bytes = Tools.Compress(Tools.Serialize<Data.Game>(game));
-                for (int i = 0; i < room.players.Count; i++)
+                if (game.extension == Data.Extension.NETCODE)
                 {
-                    if (room.players[i].id == Server.clients[clientID].accountID && !notifyCallerInUpdate) { continue; }
-                    Packet othersPacket = new Packet();
-                    othersPacket.Write((int)InternalID.GAME_STARTED);
-                    othersPacket.Write(bytes.Length);
-                    othersPacket.Write(bytes);
-                    // othersPacket.Write(playerBytes.Length);
-                    // othersPacket.Write(playerBytes);
-                    SendTCPData(room.players[i].client, othersPacket);
+                    Netcode.StartGame(game);
+                }
+                else
+                {
+                    // byte[] playerBytes = Tools.Compress(Tools.Serialize<Data.Player>(Server.clients[clientID].player));
+                    byte[] bytes = Tools.Compress(Tools.Serialize<Data.Game>(game));
+                    for (int i = 0; i < room.players.Count; i++)
+                    {
+                        if (room.players[i].id == Server.clients[clientID].accountID && !notifyCallerInUpdate) { continue; }
+                        Packet othersPacket = new Packet();
+                        othersPacket.Write((int)InternalID.GAME_STARTED);
+                        othersPacket.Write(bytes.Length);
+                        othersPacket.Write(bytes);
+                        // othersPacket.Write(playerBytes.Length);
+                        // othersPacket.Write(playerBytes);
+                        SendTCPData(room.players[i].client, othersPacket);
+                    }
                 }
             }
             SendTCPData(clientID, packet);
             return response;
         }
+        
         #endregion
 
     }

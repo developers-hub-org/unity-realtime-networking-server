@@ -33,18 +33,20 @@ namespace DevelopersHub.RealtimeNetworking.Server
             public int mapID = 0;
             public long leaderID = 0;
             public int maxPlayers = 100;
+            public Extension extension = Extension.NONE;
             public bool matchmaking = false;
             public int teamsPerMatch = 2;
             public int playersPerTeam = 6;
-            public bool matched = false;
             public List<Player> players = new List<Player>();
             public HashSet<long> invites = new HashSet<long>();
         }
 
-        public class Request
+        public class FriendRequest
         {
             public long id = 0;
+            public long playerID = 0;
             public string username = string.Empty;
+            public bool online = false;
             public DateTime time;
         }
 
@@ -77,8 +79,14 @@ namespace DevelopersHub.RealtimeNetworking.Server
             public Data.Room room = null;
             public DateTime start;
             public GameType type = GameType.HOSTED;
+            public Extension extension = Extension.NONE;
             public List<int> sceneHostsKeys = new List<int>();
             public List<long> sceneHostsValues = new List<long>();
+        }
+
+        public enum Extension
+        {
+            NONE = 0, NETCODE = 1
         }
 
     }
