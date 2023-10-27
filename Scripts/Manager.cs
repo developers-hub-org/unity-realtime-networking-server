@@ -151,7 +151,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 game.room.hostUsername = game.room.players[0].username;
                 game.room.id = Guid.NewGuid().ToString();
                 game.start = DateTime.Now;
-                if(game.extension == Data.Extension.NETCODE)
+                if(game.extension == Data.Extension.NETCODE_SERVER)
                 {
                     Netcode.StartGame(game);
                 }
@@ -1907,7 +1907,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                         {
                             if (rooms[i].id == roomID)
                             {
-                                if (rooms[i].maxPlayers > 0 && rooms[i].maxPlayers > rooms[i].players.Count)
+                                if (rooms[i].maxPlayers <= 0 || rooms[i].maxPlayers > rooms[i].players.Count)
                                 {
                                     if (string.IsNullOrEmpty(rooms[i].password) || rooms[i].password == password)
                                     {
@@ -2395,7 +2395,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
             packet.Write(response);
             if (response == 1)
             {
-                if (game.extension == Data.Extension.NETCODE)
+                if (game.extension == Data.Extension.NETCODE_SERVER)
                 {
                     Netcode.StartGame(game);
                 }

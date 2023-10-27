@@ -78,6 +78,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
 
         private static void ServerIsReady(string id, int port)
         {
+            Console.WriteLine("Netcode server is ready." + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
             for (int g = 0; g < games.Count; g++)
             {
                 if (games[g].id == id)
@@ -97,7 +98,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                             games[g].game.room.players.RemoveAt(i);
                         }
                     }
-                    games.RemoveAt(g);
+                    // games.RemoveAt(g);
                     break;
                 }
             }
@@ -105,7 +106,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
 
         private static void ServerExited(Game game)
         {
-
+            Console.WriteLine("Netcode server closed." + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
         }
 
         public static void StartGame(Data.Game game)
@@ -156,6 +157,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                             netcodeGame.process.Exited += new EventHandler(ProcessExited);
                             games.Add(netcodeGame);
                             netcodeGame.process.Start();
+                            Console.WriteLine("Netcode server started. " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
                         }
                         catch (Exception ex)
                         {
