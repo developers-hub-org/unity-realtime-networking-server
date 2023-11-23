@@ -11,6 +11,11 @@ namespace DevelopersHub.RealtimeNetworking.Server
 
         private const string server_executable_path = @"C:\Users\Test\Desktop\Server\Netcode.exe";
 
+        private static void OnGameResultReceived(Data.RuntimeResult result)
+        {
+
+        }
+
         public static void Update()
         {
             if (!updating)
@@ -63,6 +68,31 @@ namespace DevelopersHub.RealtimeNetworking.Server
                                     }
                                     File.Delete(file);
                                     ServerIsReady(id, port);
+                                }
+                                catch (Exception)
+                                {
+
+                                }
+                            }
+                        }
+                    }
+                }
+                path = string.Format("{0}Result{1}", tempPath, Path.DirectorySeparatorChar);
+                if (Directory.Exists(path))
+                {
+                    string[] files = Directory.GetFiles(path);
+                    if (files != null && files.Length > 0)
+                    {
+                        foreach (string file in files)
+                        {
+                            if (Path.GetExtension(file).ToLower() == ".txt")
+                            {
+                                try
+                                {
+                                    string serializedData = File.ReadAllText(file);
+                                    File.Delete(file);
+                                    Data.RuntimeResult result = Tools.Desrialize<Data.RuntimeResult>(Tools.DecompressString(serializedData));
+                                    OnGameResultReceived(result);
                                 }
                                 catch (Exception)
                                 {
@@ -150,10 +180,13 @@ namespace DevelopersHub.RealtimeNetworking.Server
                             Data.RuntimeGame data = _GetRuntimeGame(netcodeGame.game);
                             data.id = netcodeGame.id;
                             string serializedData = Tools.CompressString(Tools.Serialize<Data.RuntimeGame>(data));
+                            /*
                             using (StreamWriter writer = File.CreateText(filePath))
                             {
                                 writer.WriteLine(serializedData);
                             }
+                            */
+                            File.WriteAllText(filePath, serializedData);
                             netcodeGame.process = new Process();
                             netcodeGame.process.StartInfo.FileName = server_executable_path;
                             netcodeGame.process.StartInfo.WindowStyle = ProcessWindowStyle.Minimized;
