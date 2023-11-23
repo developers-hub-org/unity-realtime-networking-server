@@ -89,5 +89,33 @@ namespace DevelopersHub.RealtimeNetworking.Server
             NONE = 0, NETCODE_SERVER = 1
         }
 
+        public class RuntimeEquipment
+        {
+            public int id = 0;
+        }
+
+        public class RuntimeCharacter
+        {
+            public string name = string.Empty;
+            public int health = 100;
+            public List<RuntimeEquipment> equipments = new List<RuntimeEquipment>();
+        }
+
+        public class RuntimePlayer
+        {
+            public long id = 0;
+            public string username = string.Empty;
+            public int team = 0;
+            public List<RuntimeCharacter> characters = new List<RuntimeCharacter>();
+        }
+
+        public class RuntimeGame
+        {
+            public string id = string.Empty;
+            public int gameID = 0;
+            public int mapID = 0;
+            public List<RuntimePlayer> players = new List<RuntimePlayer>();
+        }
+
     }
 }

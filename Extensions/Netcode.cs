@@ -91,6 +91,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                             Packet packet = new Packet();
                             packet.Write((int)Manager.InternalID.NETCODE_STARTED);
                             packet.Write(port);
+                            // ToDo: Send game data and players list again
                             Manager.SendTCPData(games[g].game.room.players[i].client, packet);
                         }
                         else
@@ -119,6 +120,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                     {
                         Packet packet = new Packet();
                         packet.Write((int)Manager.InternalID.NETCODE_INIT);
+                        // ToDo: Send game data and players list
                         Manager.SendTCPData(game.room.players[i].client, packet);
                     }
                     else
@@ -145,9 +147,12 @@ namespace DevelopersHub.RealtimeNetworking.Server
                             {
                                 File.Delete(filePath);
                             }
+                            Data.RuntimeGame data = _GetRuntimeGame(netcodeGame.game);
+                            data.id = netcodeGame.id;
+                            string serializedData = Tools.CompressString(Tools.Serialize<Data.RuntimeGame>(data));
                             using (StreamWriter writer = File.CreateText(filePath))
                             {
-                                writer.WriteLine(netcodeGame.id);
+                                writer.WriteLine(serializedData);
                             }
                             netcodeGame.process = new Process();
                             netcodeGame.process.StartInfo.FileName = server_executable_path;
@@ -161,7 +166,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                         }
                         catch (Exception ex)
                         {
-                            Console.WriteLine(ex);
+                            Console.WriteLine(ex.Message);
                         }
                     }
                     else
@@ -170,6 +175,43 @@ namespace DevelopersHub.RealtimeNetworking.Server
                     }
                 }
             });
+        }
+
+        private static Data.RuntimeGame _GetRuntimeGame(Data.Game game)
+        {
+            Data.RuntimeGame data = new Data.RuntimeGame();
+            data.mapID = game.room.mapID;
+            data.gameID = game.room.gameID;
+            using (var connection = Sqlite.connection)
+            {
+                connection.Open();
+                for (int i = 0; i < game.room.players.Count; i++)
+                {
+                    Data.RuntimePlayer player = new Data.RuntimePlayer();
+                    player.id = game.room.players[i].id;
+                    player.username = game.room.players[i].username;
+                    player.team = game.room.players[i].team;
+                    /*
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = string.Format(@"SELECT x, y, z FROM whatever WHERE id = {0};", player.id);
+                        using (var reader = command.ExecuteReader())
+                        {
+                            if (reader.HasRows)
+                            {
+                                while (reader.Read())
+                                {
+
+                                }
+                            }
+                        }
+                    }
+                    */
+                    data.players.Add(player);
+                }
+                connection.Close();
+            }
+            return data;
         }
 
         private static void ProcessExited(object sender, EventArgs e)
