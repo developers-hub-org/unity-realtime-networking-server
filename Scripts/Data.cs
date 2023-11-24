@@ -1,9 +1,8 @@
-﻿using System;
-using System.Collections.Generic;
-using static System.Net.Mime.MediaTypeNames;
-
-namespace DevelopersHub.RealtimeNetworking.Server
+﻿namespace DevelopersHub.RealtimeNetworking.Server
 {
+    using System;
+    using System.Collections.Generic;
+
     public class Data
     {
 
@@ -22,6 +21,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
         {
             public long id = 0;
             public string username = string.Empty;
+            public int coins = 0;
             public bool online = false;
             public DateTime login;
         }

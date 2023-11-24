@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Diagnostics;
 using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
@@ -1006,6 +1007,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
             long id = -1;
             int response = 0;
             int banned = 0;
+            Data.PlayerProfile profile = null;
             using (var connection = Sqlite.connection)
             {
                 connection.Open();
@@ -1062,8 +1064,9 @@ namespace DevelopersHub.RealtimeNetworking.Server
                                     }
                                 }
                             }
-                            string token = Tools.GenerateToken().Substring(0, 5);
-                            username = "Player_" + token + (count + 1).ToString();
+                            // string token = Tools.GenerateToken().Substring(0, 5);
+                            // username = "Player_" + token + (count + 1).ToString();
+                            username = "Player"  + (count + 1).ToString("D8");
                         }
                         using (var command = connection.CreateCommand())
                         {
@@ -1119,6 +1122,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                         command.ExecuteNonQuery();
                     }
                 }
+                profile = _GetPlayer(id, connection);
                 connection.Close();
             }
             Packet packet = new Packet();
@@ -1128,6 +1132,12 @@ namespace DevelopersHub.RealtimeNetworking.Server
             packet.Write(banned);
             packet.Write(username);
             packet.Write(password);
+            if (response == 1 && profile != null)
+            {
+                byte[] data = Tools.Compress(Tools.Serialize<Data.PlayerProfile>(profile));
+                packet.Write(data.Length);
+                packet.Write(data);
+            }
             SendTCPData(clientID, packet);
             return 1;
         }
@@ -1461,7 +1471,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
         {
             Data.PlayerProfile profile = _GetPlayer(accountID);
             Packet packet = new Packet();
-            packet.Write((int)InternalID.GET_FRIENDS);
+            packet.Write((int)InternalID.GET_PROFILE);
             if (profile == null)
             {
                 packet.Write(0);
@@ -1483,26 +1493,34 @@ namespace DevelopersHub.RealtimeNetworking.Server
             using (var connection = Sqlite.connection)
             {
                 connection.Open();
-                using (var command = connection.CreateCommand())
+                profile = _GetPlayer(accountID, connection);
+                connection.Close();
+            }
+            return profile;
+        }
+
+        private static Data.PlayerProfile _GetPlayer(long accountID, Microsoft.Data.Sqlite.SqliteConnection connection)
+        {
+            Data.PlayerProfile profile = null;
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = string.Format(@"SELECT username, client_index, coins, login_time FROM accounts WHERE id = {0};", accountID);
+                using (var reader = command.ExecuteReader())
                 {
-                    command.CommandText = string.Format(@"SELECT username, client_index, login_time FROM accounts WHERE id = {0};", accountID);
-                    using (var reader = command.ExecuteReader())
+                    if (reader.HasRows)
                     {
-                        if (reader.HasRows)
+                        while (reader.Read())
                         {
-                            while (reader.Read())
-                            {
-                                profile = new Data.PlayerProfile();
-                                profile.id = accountID;
-                                profile.username = reader.GetString("username");
-                                profile.online = reader.GetInt32("client_index") >= 0;
-                                profile.login = reader.GetDateTime("login_time");
-                                break;
-                            }
+                            profile = new Data.PlayerProfile();
+                            profile.id = accountID;
+                            profile.username = reader.GetString("username");
+                            profile.online = reader.GetInt32("client_index") >= 0;
+                            profile.coins = reader.GetInt32("coins");
+                            profile.login = reader.GetDateTime("login_time");
+                            break;
                         }
                     }
                 }
-                connection.Close();
             }
             return profile;
         }

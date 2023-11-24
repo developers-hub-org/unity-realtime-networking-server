@@ -87,6 +87,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                         device_id VARCHAR(500) DEFAULT '',
                         ip_address VARCHAR(50) DEFAULT '0.0.0.0',
                         client_index INTEGER DEFAULT -1,
+                        coins INTEGER DEFAULT 0,
                         login_time DATETIME DEFAULT CURRENT_TIMESTAMP,
                         banned INTEGER DEFAULT 0,
                         ban_reason INTEGER DEFAULT 0
