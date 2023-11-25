@@ -10,10 +10,64 @@ namespace DevelopersHub.RealtimeNetworking.Server
     {
 
         private const string server_executable_path = @"C:\Users\Test\Desktop\Server\Netcode.exe";
+        private const int max_server_life_seconds = 21600;
+        
+        private static void OverridePlayerInitialData(ref Data.RuntimePlayer player, Microsoft.Data.Sqlite.SqliteConnection connection)
+        {
+            /*
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = string.Format(@"SELECT x, y, z FROM whatever WHERE id = {0};", player.id);
+                using (var reader = command.ExecuteReader())
+                {
+                    if (reader.HasRows)
+                    {
+                        while (reader.Read())
+                        {
+
+                        }
+                    }
+                }
+            }
+            */
+        }
 
         private static void OnGameResultReceived(Data.RuntimeResult result)
         {
+            /*
+            using (var connection = Sqlite.connection)
+            {
+                connection.Open();
 
+                connection.Close();
+            }
+            */
+        }
+
+        #region Internal
+
+        private static int process_check_period = 60;
+        private static DateTime laast_process_check;
+
+        public static void Start()
+        {
+            string tempPath = Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar) + string.Format("{0}RealtimeNetworking{0}Extentions{0}Netcode", Path.DirectorySeparatorChar);
+            string resultPath = string.Format("{0}Result{1}", tempPath, Path.DirectorySeparatorChar);
+            string loadPath = string.Format("{0}Load{1}", tempPath, Path.DirectorySeparatorChar);
+            string readyPath = string.Format("{0}Ready{1}", tempPath, Path.DirectorySeparatorChar);
+            if (Directory.Exists(resultPath))
+            {
+                Directory.Delete(resultPath);
+            }
+            if (Directory.Exists(loadPath))
+            {
+                Directory.Delete(loadPath);
+            }
+            if (Directory.Exists(readyPath))
+            {
+                Directory.Delete(readyPath);
+            }
+            laast_process_check = DateTime.Now;
         }
 
         public static void Update()
@@ -33,6 +87,8 @@ namespace DevelopersHub.RealtimeNetworking.Server
             public string id = string.Empty;
             public Data.Game game = null;
             public Process process = null;
+            public DateTime start;
+            public Data.RuntimeGame runtime = null;
             public int port = 7777;
         }
 
@@ -102,8 +158,61 @@ namespace DevelopersHub.RealtimeNetworking.Server
                         }
                     }
                 }
+                path = string.Format("{0}Close{1}", tempPath, Path.DirectorySeparatorChar);
+                if (Directory.Exists(path))
+                {
+                    string[] files = Directory.GetFiles(path);
+                    if (files != null && files.Length > 0)
+                    {
+                        foreach (string file in files)
+                        {
+                            if (Path.GetExtension(file).ToLower() == ".txt")
+                            {
+                                try
+                                {
+                                    string id = File.ReadAllText(file).Trim();
+                                    File.Delete(file);
+                                    for (int i = 0; i < games.Count; i++)
+                                    {
+                                        if (games[i] != null && games[i].id == id)
+                                        {
+                                            KillGameProcess(i);
+                                        }
+                                    }
+                                }
+                                catch (Exception)
+                                {
+
+                                }
+                            }
+                        }
+                    }
+                }
+                double process_check_seconds = (DateTime.Now - laast_process_check).TotalSeconds;
+                if(process_check_seconds >= process_check_period)
+                {
+                    laast_process_check = DateTime.Now;
+                    for (int i = 0; i < games.Count; i++)
+                    {
+                        if (games[i] != null && (DateTime.Now - games[i].start).TotalSeconds >= max_server_life_seconds)
+                        {
+                            KillGameProcess(i);
+                        }
+                    }
+                }
                 updating = false;
             });
+        }
+
+        private static void KillGameProcess(int index)
+        {
+            if (games[index] != null && games[index].process != null)
+            {
+                var process = games[index].process;
+                process.Kill();
+                process.WaitForExit();
+                process.Dispose();
+            }
         }
 
         private static void ServerIsReady(string id, int port)
@@ -118,10 +227,12 @@ namespace DevelopersHub.RealtimeNetworking.Server
                     {
                         if (Server.clients.ContainsKey(games[g].game.room.players[i].client) && Server.clients[games[g].game.room.players[i].client].accountID == games[g].game.room.players[i].id)
                         {
+                            byte[] serializedData = Tools.Compress(Tools.Serialize<Data.RuntimeGame>(games[g].runtime));
                             Packet packet = new Packet();
                             packet.Write((int)Manager.InternalID.NETCODE_STARTED);
                             packet.Write(port);
-                            // ToDo: Send game data and players list again
+                            packet.Write(serializedData.Length);
+                            packet.Write(serializedData);
                             Manager.SendTCPData(games[g].game.room.players[i].client, packet);
                         }
                         else
@@ -129,7 +240,6 @@ namespace DevelopersHub.RealtimeNetworking.Server
                             games[g].game.room.players.RemoveAt(i);
                         }
                     }
-                    // games.RemoveAt(g);
                     break;
                 }
             }
@@ -150,7 +260,6 @@ namespace DevelopersHub.RealtimeNetworking.Server
                     {
                         Packet packet = new Packet();
                         packet.Write((int)Manager.InternalID.NETCODE_INIT);
-                        // ToDo: Send game data and players list
                         Manager.SendTCPData(game.room.players[i].client, packet);
                     }
                     else
@@ -180,19 +289,17 @@ namespace DevelopersHub.RealtimeNetworking.Server
                             Data.RuntimeGame data = _GetRuntimeGame(netcodeGame.game);
                             data.id = netcodeGame.id;
                             string serializedData = Tools.CompressString(Tools.Serialize<Data.RuntimeGame>(data));
-                            /*
-                            using (StreamWriter writer = File.CreateText(filePath))
-                            {
-                                writer.WriteLine(serializedData);
-                            }
-                            */
                             File.WriteAllText(filePath, serializedData);
                             netcodeGame.process = new Process();
                             netcodeGame.process.StartInfo.FileName = server_executable_path;
                             netcodeGame.process.StartInfo.WindowStyle = ProcessWindowStyle.Minimized;
+                            netcodeGame.process.StartInfo.CreateNoWindow = true;
+                            netcodeGame.process.StartInfo.UseShellExecute = false;
                             netcodeGame.process.EnableRaisingEvents = true;
                             netcodeGame.process.StartInfo.ArgumentList.Add(netcodeGame.id);
                             netcodeGame.process.Exited += new EventHandler(ProcessExited);
+                            netcodeGame.start = DateTime.Now;
+                            netcodeGame.runtime = data;
                             games.Add(netcodeGame);
                             netcodeGame.process.Start();
                             Console.WriteLine("Netcode server started. " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
@@ -224,22 +331,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                     player.id = game.room.players[i].id;
                     player.username = game.room.players[i].username;
                     player.team = game.room.players[i].team;
-                    /*
-                    using (var command = connection.CreateCommand())
-                    {
-                        command.CommandText = string.Format(@"SELECT x, y, z FROM whatever WHERE id = {0};", player.id);
-                        using (var reader = command.ExecuteReader())
-                        {
-                            if (reader.HasRows)
-                            {
-                                while (reader.Read())
-                                {
-
-                                }
-                            }
-                        }
-                    }
-                    */
+                    OverridePlayerInitialData(ref player, connection);
                     data.players.Add(player);
                 }
                 connection.Close();
@@ -264,6 +356,8 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 }
             }
         }
+        
+        #endregion
 
     }
 }

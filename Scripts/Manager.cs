@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Data;
-using System.Diagnostics;
 using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
@@ -40,6 +39,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
             parties.Clear();
             rooms.Clear();
             Sqlite.Initialize();
+            Netcode.Start();
         }
 
         public static void Update()
