@@ -10,29 +10,9 @@ namespace DevelopersHub.RealtimeNetworking.Server
     class Manager
     {
 
+        #region Internal
         public const bool enabled = true;
 
-        private static (int, int) OverrideMatchmakingData(int gameID, int mapID)
-        {
-            int teamsPerMatch = 2;
-            int playersPerTeam = 6;
-            // --->
-            // Add your custom game conditions here, for example:
-            if (gameID == 1)
-            {
-                teamsPerMatch = 2;
-                playersPerTeam = 1;
-            }
-            else if (gameID == 2)
-            {
-                teamsPerMatch = 2;
-                playersPerTeam = 100;
-            }
-            // <---
-            return (teamsPerMatch, playersPerTeam);
-        }
-
-        #region Internal
         public static void Initialize()
         {
             games.Clear();
@@ -220,7 +200,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 {
                     if (Server.clients[clientID].party.leaderID == Server.clients[clientID].accountID)
                     {
-                        var match = OverrideMatchmakingData(gameID, mapID);
+                        var match = Terminal.OverrideMatchmakingData(gameID, mapID);
                         if(match.Item1 < 1)
                         {
                             match.Item1 = 1;
@@ -1007,6 +987,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
             long id = -1;
             int response = 0;
             int banned = 0;
+            bool online = false;
             Data.PlayerProfile profile = null;
             using (var connection = Sqlite.connection)
             {
@@ -1015,7 +996,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 {
                     using (var command = connection.CreateCommand())
                     {
-                        command.CommandText = string.Format(@"SELECT id, banned FROM accounts WHERE LOWER(username) = '{0}' AND password = '{1}';", username.ToLower(), password);
+                        command.CommandText = string.Format(@"SELECT id, client_index, banned FROM accounts WHERE LOWER(username) = '{0}' AND password = '{1}';", username.ToLower(), password);
                         using (var reader = command.ExecuteReader())
                         {
                             if (reader.HasRows)
@@ -1024,6 +1005,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                                 {
                                     id = reader.GetInt64("id");
                                     banned = reader.GetInt32("banned");
+                                    online = reader.GetInt32("client_index") > 0;
                                 }
                             }
                         }
@@ -1031,7 +1013,13 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 }
                 if (id >= 0)
                 {
-                    if (banned > 0)
+                    if (online)
+                    {
+                        // Another User Is Online
+                        id = -1;
+                        response = 3;
+                    }
+                    else if (banned > 0)
                     {
                         // Banned From Game
                         id = -1;
@@ -1064,8 +1052,6 @@ namespace DevelopersHub.RealtimeNetworking.Server
                                     }
                                 }
                             }
-                            // string token = Tools.GenerateToken().Substring(0, 5);
-                            // username = "Player_" + token + (count + 1).ToString();
                             username = "Player"  + (count + 1).ToString("D8");
                         }
                         using (var command = connection.CreateCommand())

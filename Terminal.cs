@@ -36,5 +36,25 @@ namespace DevelopersHub.RealtimeNetworking.Server
 
         }
 
+        public static (int, int) OverrideMatchmakingData(int gameID, int mapID)
+        {
+            int teamsPerMatch = 2;
+            int playersPerTeam = 6;
+            // --->
+            // Add your custom game conditions here, for example:
+            if (gameID == 1)
+            {
+                teamsPerMatch = 2;
+                playersPerTeam = 1;
+            }
+            else if (gameID == 2)
+            {
+                teamsPerMatch = 2;
+                playersPerTeam = 100;
+            }
+            // <---
+            return (teamsPerMatch, playersPerTeam);
+        }
+
     }
 }
