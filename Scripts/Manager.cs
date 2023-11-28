@@ -20,6 +20,12 @@ namespace DevelopersHub.RealtimeNetworking.Server
             rooms.Clear();
             Sqlite.Initialize();
             Netcode.Start();
+
+        }
+
+        public static void OnExit()
+        {
+            Netcode.OnExit();
         }
 
         public static void Update()

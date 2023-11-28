@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Threading.Tasks;
+using static DevelopersHub.RealtimeNetworking.Server.Packet;
 
 namespace DevelopersHub.RealtimeNetworking.Server
 {
@@ -68,6 +69,14 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 Directory.Delete(readyPath);
             }
             laast_process_check = DateTime.Now;
+        }
+
+        public static void OnExit()
+        {
+            for (int i = 0; i < games.Count; i++)
+            {
+                KillGameProcess(i);
+            }
         }
 
         public static void Update()
