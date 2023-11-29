@@ -1,4 +1,5 @@
-﻿using System;
+﻿using MySql.Data.MySqlClient;
+using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Numerics;
@@ -1372,6 +1373,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                             {
                                 // Auth Successful
                                 response = 1;
+                                Terminal.OnSignup(id, connection);
                             }
                         }
                     }
@@ -1772,7 +1774,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
             Data.PlayerProfile profile = null;
             using (var command = connection.CreateCommand())
             {
-                command.CommandText = string.Format(@"SELECT username, client_index, coins, level, xp, login_time FROM accounts WHERE id = {0};", accountID);
+                command.CommandText = string.Format(@"SELECT username, client_index, coins, score, level, xp, login_time FROM accounts WHERE id = {0};", accountID);
                 using (var reader = command.ExecuteReader())
                 {
                     if (reader.HasRows)
@@ -1784,6 +1786,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                             profile.username = reader.GetString("username");
                             profile.online = reader.GetInt32("client_index") >= 0;
                             profile.coins = reader.GetInt32("coins");
+                            profile.score = reader.GetInt32("score");
                             profile.level = reader.GetInt32("level");
                             profile.xp = reader.GetInt32("xp");
                             profile.login = reader.GetDateTime("login_time");
@@ -1800,7 +1803,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
             List<Data.RuntimeCharacter> characters = new List<Data.RuntimeCharacter>();
             using (var command = connection.CreateCommand())
             {
-                command.CommandText = string.Format(@"SELECT id, prefab_id, xp, level, health, speed, damage, selected, default_name, custom_name FROM characters WHERE account_id = {0}{1};", accountID, onlySelected ? " AND selected > 0" : "");
+                command.CommandText = string.Format(@"SELECT id, prefab_id, tag, xp, level, health, speed, damage, strength, agility, constitution, dexterity, vitality, endurance, intelligence, wisdom, charisma, perception, luck, willpower, selected, default_name, custom_name FROM characters WHERE account_id = {0}{1};", accountID, onlySelected ? " AND selected > 0" : "");
                 using (var reader = command.ExecuteReader())
                 {
                     if (reader.HasRows)
@@ -1809,12 +1812,25 @@ namespace DevelopersHub.RealtimeNetworking.Server
                         {
                             Data.RuntimeCharacter character = new Data.RuntimeCharacter();
                             character.id = reader.GetInt64("id");
+                            character.tag = reader.GetString("tag");
                             character.prefabID = reader.GetInt32("prefab_id");
                             character.level = reader.GetInt32("level");
                             character.xp = reader.GetInt32("xp");
-                            character.health = reader.GetInt32("health");
-                            character.speed = reader.GetInt32("speed");
-                            character.damage = reader.GetInt32("damage");
+                            character.health = reader.GetDouble("health");
+                            character.speed = reader.GetDouble("speed");
+                            character.damage = reader.GetDouble("damage");
+                            character.strength = reader.GetInt32("strength");
+                            character.agility = reader.GetInt32("agility");
+                            character.constitution = reader.GetInt32("constitution");
+                            character.dexterity = reader.GetInt32("dexterity");
+                            character.vitality = reader.GetInt32("vitality");
+                            character.endurance = reader.GetInt32("endurance");
+                            character.intelligence = reader.GetInt32("intelligence");
+                            character.wisdom = reader.GetInt32("wisdom");
+                            character.charisma = reader.GetInt32("charisma");
+                            character.perception = reader.GetInt32("perception");
+                            character.luck = reader.GetInt32("luck");
+                            character.willpower = reader.GetInt32("willpower");
                             character.selected = reader.GetInt32("selected") > 0;
                             character.name = reader.GetString("default_name");
                             character.customName = reader.GetString("custom_name");
@@ -1833,12 +1849,209 @@ namespace DevelopersHub.RealtimeNetworking.Server
             return characters;
         }
 
+        public async static Task<long> CreateCharacterAsync(long accountID, Data.RuntimeCharacter character)
+        {
+            Task<long> task = Task.Run(() =>
+            {
+                return CreateCharacter(accountID, character);
+            });
+            return await task;
+        }
+
+        public static long CreateCharacter(long accountID, Data.RuntimeCharacter character)
+        {
+            long id = 0;
+            using (var connection = Sqlite.connection)
+            {
+                connection.Open();
+                id = CreateCharacter(accountID, character, connection);
+                connection.Close();
+            }
+            return id;
+        }
+
+        public static long CreateCharacter(long accountID, Data.RuntimeCharacter character, Microsoft.Data.Sqlite.SqliteConnection connection)
+        {
+            long id = 0;
+            if (character != null)
+            {
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = string.Format(@"SELECT id FROM accounts WHERE id = {0};", accountID);
+                    using (var reader = command.ExecuteReader())
+                    {
+                        if (!reader.HasRows)
+                        {
+                            accountID = 0;
+                        }
+                    }
+                }
+                if(accountID > 0)
+                {
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = string.Format(@"INSERT INTO characters (account_id, prefab_id, xp, level, health, speed, damage, strength, agility, constitution, dexterity, endurance, intelligence, wisdom, charisma, perception, luck, willpower, vitality, selected, default_name, custom_name, tag) VALUES({0}, {1}, {2}, {3}, {4}, {5}, {6}, {7}, {8}, {9}, {10}, {11}, {12}, {13}, {14}, {15}, {16}, {17}, {18}, {19}, '{20}', '{21}', '{22}'); SELECT LAST_INSERT_ROWID();", accountID, character.prefabID, character.xp, character.level, character.health, character.speed, character.damage, character.strength, character.agility, character.constitution, character.dexterity, character.endurance, character.intelligence, character.wisdom, character.charisma, character.perception, character.luck, character.willpower, character.vitality, character.selected, character.name, character.customName, character.tag);
+                        id = Convert.ToInt64(command.ExecuteScalar());
+                    }
+                }
+            }
+            return id;
+        }
+
+        public async static Task<long> CreateEquipmentAsync(long accountID, long characterID, Data.RuntimeEquipment equipment)
+        {
+            Task<long> task = Task.Run(() =>
+            {
+                return CreateEquipment(accountID, characterID, equipment);
+            });
+            return await task;
+        }
+
+        public static long CreateEquipment(long accountID, long characterID, Data.RuntimeEquipment equipment)
+        {
+            long id = 0;
+            using (var connection = Sqlite.connection)
+            {
+                connection.Open();
+                id = CreateEquipment(accountID, characterID, equipment, connection);
+                connection.Close();
+            }
+            return id;
+        }
+
+        public static long CreateEquipment(long accountID, long characterID, Data.RuntimeEquipment equipment, Microsoft.Data.Sqlite.SqliteConnection connection)
+        {
+            long id = 0;
+            if (equipment != null)
+            {
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = string.Format(@"SELECT id FROM accounts WHERE id = {0};", accountID);
+                    using (var reader = command.ExecuteReader())
+                    {
+                        if (!reader.HasRows)
+                        {
+                            accountID = 0;
+                        }
+                    }
+                }
+                if (characterID > 0)
+                {
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = string.Format(@"SELECT id FROM characters WHERE id = {0};", characterID);
+                        using (var reader = command.ExecuteReader())
+                        {
+                            if (!reader.HasRows)
+                            {
+                                characterID = 0;
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    characterID = 0;
+                }
+                if (accountID > 0)
+                {
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = string.Format(@"INSERT INTO equipments (account_id, character_id, prefab_id, range, level, armor, speed, damage, weight, accuracy, capacity, default_name, custom_name, tag) VALUES({0}, {1}, {2}, {3}, {4}, {5}, {6}, {7}, {8}, {9}, {10}, '{11}', '{12}', '{13}'); SELECT LAST_INSERT_ROWID();", accountID, characterID, equipment.prefabID, equipment.range, equipment.level, equipment.armor, equipment.speed, equipment.damage, equipment.weight, equipment.accuracy, equipment.capacity, equipment.name, equipment.customName, equipment.tag);
+                        id = Convert.ToInt64(command.ExecuteScalar());
+                    }
+                }
+            }
+            return id;
+        }
+
+        public async static Task<bool> SpendCoinsAsync(long accountID, uint amount)
+        {
+            Task<bool> task = Task.Run(() =>
+            {
+                return SpendCoins(accountID, amount);
+            });
+            return await task;
+        }
+
+        public static bool SpendCoins(long accountID, uint amount)
+        {
+            bool spent = false;
+            using (var connection = Sqlite.connection)
+            {
+                connection.Open();
+                spent = SpendCoins(accountID, amount, connection);
+                connection.Close();
+            }
+            return spent;
+        }
+
+        public static bool SpendCoins(long accountID, uint amount, Microsoft.Data.Sqlite.SqliteConnection connection)
+        {
+            bool spent = false;
+            if (amount > 0)
+            {
+                int coins = GetCoins(accountID, connection);
+                if (coins >= amount)
+                {
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = string.Format(@"UPDATE accounts SET coins = coins - {0} WHERE id = {1};", amount, accountID);
+                        command.ExecuteNonQuery();
+                    }
+                }
+            }
+            return spent;
+        }
+
+        public async static Task<int> GetCoinsAsync(long accountID)
+        {
+            Task<int> task = Task.Run(() =>
+            {
+                return GetCoins(accountID);
+            });
+            return await task;
+        }
+
+        public static int GetCoins(long accountID)
+        {
+            int coins = 0;
+            using (var connection = Sqlite.connection)
+            {
+                connection.Open();
+                coins = GetCoins(accountID, connection);
+                connection.Close();
+            }
+            return coins;
+        }
+
+        public static int GetCoins(long accountID, Microsoft.Data.Sqlite.SqliteConnection connection)
+        {
+            int coins = 0;
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = string.Format(@"SELECT coins FROM accounts WHERE id = {0};", accountID);
+                using (var reader = command.ExecuteReader())
+                {
+                    if (reader.HasRows)
+                    {
+                        while (reader.Read())
+                        {
+                            coins = reader.GetInt32("coins");
+                            break;
+                        }
+                    }
+                }
+            }
+            return coins;
+        }
+
         public static List<Data.RuntimeEquipment> GetRuntimeEquipments(long accountID, long characterID, bool excludeEquipped, Microsoft.Data.Sqlite.SqliteConnection connection)
         {
             List<Data.RuntimeEquipment> equipments = new List<Data.RuntimeEquipment>();
             using (var command = connection.CreateCommand())
             {
-                command.CommandText = string.Format(@"SELECT id, character_id, prefab_id, range, level, armor, speed, damage, capacity, default_name, custom_name FROM equipments WHERE account_id = {0}{1}{2};", accountID, characterID > 0 ? " AND character_id = " + characterID.ToString() : "", excludeEquipped ? " AND character_id <= 0" : "");
+                command.CommandText = string.Format(@"SELECT id, character_id, prefab_id, range, level, armor, speed, damage, weight, accuracy, capacity, default_name, tag, custom_name FROM equipments WHERE account_id = {0}{1}{2};", accountID, characterID > 0 ? " AND character_id = " + characterID.ToString() : "", excludeEquipped ? " AND character_id <= 0" : "");
                 using (var reader = command.ExecuteReader())
                 {
                     if (reader.HasRows)
@@ -1850,13 +2063,16 @@ namespace DevelopersHub.RealtimeNetworking.Server
                             equipment.characterID = reader.GetInt64("character_id");
                             equipment.prefabID = reader.GetInt32("prefab_id");
                             equipment.level = reader.GetInt32("level");
-                            equipment.range = reader.GetInt32("range");
-                            equipment.armor = reader.GetInt32("armor");
-                            equipment.speed = reader.GetInt32("speed");
-                            equipment.damage = reader.GetInt32("damage");
+                            equipment.range = reader.GetDouble("range");
+                            equipment.armor = reader.GetDouble("armor");
+                            equipment.speed = reader.GetDouble("speed");
+                            equipment.damage = reader.GetDouble("damage");
+                            equipment.weight = reader.GetDouble("weight");
+                            equipment.accuracy = reader.GetDouble("accuracy");
                             equipment.capacity = reader.GetInt32("capacity");
                             equipment.name = reader.GetString("default_name");
                             equipment.customName = reader.GetString("custom_name");
+                            equipment.tag = reader.GetString("tag");
                             equipments.Add(equipment);
                         }
                     }

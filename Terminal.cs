@@ -36,6 +36,47 @@ namespace DevelopersHub.RealtimeNetworking.Server
 
         }
 
+        public static void OnSignup(long accountID, Microsoft.Data.Sqlite.SqliteConnection connection)
+        {
+
+        }
+
+        public static (Data.PurchaseResult, int) OverridePurchase(long accountID, int itemCategory, int itemID, int itemLevel, int currencyID, Microsoft.Data.Sqlite.SqliteConnection connection)
+        {
+            uint price = 99999;
+            Data.PurchaseResult result = Data.PurchaseResult.Unknown;
+
+            /*
+            bool purchased = false;
+            if (itemCategory == weapon && itemID == excalibur && itemLevel == 1)
+            {
+                if(currencyID == coins)
+                {
+                    price = 12345;
+                    purchased = Manager.SpendCoins(accountID, price);
+                }
+            }
+            if(purchased)
+            {
+                // Add item here. For example:
+                Data.RuntimeEquipment sword = new Data.RuntimeEquipment();
+                sword.name = "Excalibur";
+                sword.tag = "excalibur";
+                sword.prefabID = 0;
+                sword.weight = 4.8;
+                sword.damage = 25;
+                sword.level = itemLevel;
+                Manager.CreateEquipment(accountID, 0, sword);
+            }
+            else
+            {
+                result = Data.PurchaseResult.InsufficientFunds;
+            }
+            */
+
+            return (result, (int)price);
+        }
+
         public static (int, int) OverrideMatchmaking(int gameID, int mapID)
         {
             int teamsPerMatch = 2;
@@ -44,8 +85,8 @@ namespace DevelopersHub.RealtimeNetworking.Server
             // Add your custom game conditions here, for example:
             if (gameID == 1)
             {
-                teamsPerMatch = 2;
-                playersPerTeam = 1;
+                teamsPerMatch = 10;
+                playersPerTeam = 10;
             }
             else if (gameID == 2)
             {
@@ -54,59 +95,6 @@ namespace DevelopersHub.RealtimeNetworking.Server
             }
             // <---
             return (teamsPerMatch, playersPerTeam);
-        }
-
-        public static (Data.PurchaseResult, int) OverridePurchase(long accountID, int itemCategory, int itemID, int itemLevel, int currencyID, Microsoft.Data.Sqlite.SqliteConnection connection)
-        {
-            int price = 99999;
-            Data.PurchaseResult result = Data.PurchaseResult.Unknown;
-
-            /*
-            if(itemCategory == whatever && itemID == whatever && itemLevel == whatever)
-            {
-                price = 12345;
-            }
-
-            int haveCurrency = 0;
-            if(currencyID == whatever)
-            {
-                using (var command = connection.CreateCommand())
-                {
-                    command.CommandText = string.Format(@"SELECT coins FROM accounts WHERE id = {0};", accountID);
-                    using (var reader = command.ExecuteReader())
-                    {
-                        if (reader.HasRows)
-                        {
-                            while (reader.Read())
-                            {
-                                haveCoins = reader.GetInt32("coins");
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-            if(haveCurrency >= price)
-            {
-                if (currencyID == whatever)
-                {
-                    using (var command = connection.CreateCommand())
-                    {
-                        command.CommandText = string.Format(@"UPDATE accounts SET coins = coins - {0} WHERE id = {1};", price, accountID);
-                        command.ExecuteNonQuery();
-                    }
-                }
-
-                // Add item here
-
-            }
-            else
-            {
-                result = Data.PurchaseResult.InsufficientFunds;
-            }
-            */
-
-            return (result, price);
         }
 
         public static void OverrideGameInitialData(ref Data.RuntimeGame data, Microsoft.Data.Sqlite.SqliteConnection connection)

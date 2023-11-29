@@ -22,6 +22,7 @@
             public long id = 0;
             public string username = string.Empty;
             public int coins = 0;
+            public int score = 0;
             public int level = 1;
             public int xp = 0;
             public bool online = false;
@@ -105,12 +106,15 @@
             public int prefabID = 0;
             public string name = string.Empty;
             public string customName = string.Empty;
+            public string tag = string.Empty;
             public int level = 1;
-            public int armor = 10;
-            public int damage = 20;
-            public int range = 100;
-            public int speed = 1;
-            public int capacity = 1;
+            public double armor = 0;
+            public double damage = 0;
+            public double accuracy = 0;
+            public double range = 0;
+            public double speed = 0;
+            public double weight = 0;
+            public int capacity = 0;
         }
 
         public class RuntimeCharacter
@@ -119,16 +123,25 @@
             public int prefabID = 0;
             public string name = string.Empty;
             public string customName = string.Empty;
+            public string tag = string.Empty;
             public bool selected = false;
             public int xp = 0;
             public int level = 1;
-            public int health = 100;
-            public int damage = 1;
-            public int speed = 1;
-            public int totalDamageDealt = 0;
-            public int kills = 0;
-            public int assists = 0;
-            public int deaths = 0;
+            public double health = 100;
+            public double damage = 0;
+            public double speed = 0;
+            public int strength = 0;
+            public int agility = 0;
+            public int constitution = 0;
+            public int dexterity = 0;
+            public int vitality = 0;
+            public int endurance = 0;
+            public int intelligence = 0;
+            public int wisdom = 0;
+            public int charisma = 0;
+            public int perception = 0;
+            public int luck = 0;
+            public int willpower = 0;
             public List<RuntimeEquipment> equipments = new List<RuntimeEquipment>();
         }
 
