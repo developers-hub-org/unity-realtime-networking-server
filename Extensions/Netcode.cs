@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Threading.Tasks;
-using static DevelopersHub.RealtimeNetworking.Server.Packet;
 
 namespace DevelopersHub.RealtimeNetworking.Server
 {
@@ -12,38 +11,6 @@ namespace DevelopersHub.RealtimeNetworking.Server
 
         private const string server_executable_path = @"C:\Users\Test\Desktop\Server\Netcode.exe";
         private const int max_server_life_seconds = 21600;
-        
-        private static void OverridePlayerInitialData(ref Data.RuntimePlayer player, Microsoft.Data.Sqlite.SqliteConnection connection)
-        {
-            /*
-            using (var command = connection.CreateCommand())
-            {
-                command.CommandText = string.Format(@"SELECT x, y, z FROM whatever WHERE id = {0};", player.id);
-                using (var reader = command.ExecuteReader())
-                {
-                    if (reader.HasRows)
-                    {
-                        while (reader.Read())
-                        {
-
-                        }
-                    }
-                }
-            }
-            */
-        }
-
-        private static void OnGameResultReceived(Data.RuntimeResult result)
-        {
-            /*
-            using (var connection = Sqlite.connection)
-            {
-                connection.Open();
-
-                connection.Close();
-            }
-            */
-        }
 
         #region Internal
 
@@ -157,7 +124,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                                     string serializedData = File.ReadAllText(file);
                                     File.Delete(file);
                                     Data.RuntimeResult result = Tools.Desrialize<Data.RuntimeResult>(Tools.DecompressString(serializedData));
-                                    OnGameResultReceived(result);
+                                    Terminal.OnNetcodeGameResultReceived(result);
                                 }
                                 catch (Exception)
                                 {
@@ -197,15 +164,18 @@ namespace DevelopersHub.RealtimeNetworking.Server
                         }
                     }
                 }
-                double process_check_seconds = (DateTime.Now - laast_process_check).TotalSeconds;
-                if(process_check_seconds >= process_check_period)
+                if(max_server_life_seconds > 0)
                 {
-                    laast_process_check = DateTime.Now;
-                    for (int i = 0; i < games.Count; i++)
+                    double process_check_seconds = (DateTime.Now - laast_process_check).TotalSeconds;
+                    if (process_check_seconds >= process_check_period)
                     {
-                        if (games[i] != null && (DateTime.Now - games[i].start).TotalSeconds >= max_server_life_seconds)
+                        laast_process_check = DateTime.Now;
+                        for (int i = 0; i < games.Count; i++)
                         {
-                            KillGameProcess(i);
+                            if (games[i] != null && (DateTime.Now - games[i].start).TotalSeconds >= max_server_life_seconds)
+                            {
+                                KillGameProcess(i);
+                            }
                         }
                     }
                 }
@@ -340,9 +310,10 @@ namespace DevelopersHub.RealtimeNetworking.Server
                     player.id = game.room.players[i].id;
                     player.username = game.room.players[i].username;
                     player.team = game.room.players[i].team;
-                    OverridePlayerInitialData(ref player, connection);
+                    player.characters = Manager.GetRuntimeCharacters(player.id, true, true, connection);
                     data.players.Add(player);
                 }
+                Terminal.OverrideGameInitialData(ref data, connection);
                 connection.Close();
             }
             return data;

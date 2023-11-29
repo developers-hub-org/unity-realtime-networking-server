@@ -61,6 +61,10 @@ namespace DevelopersHub.RealtimeNetworking.Server
                         FileStream fileStream = File.Create(Terminal.sqlite_database_file_path);
                         return true;
                     }
+                    else
+                    {
+                        // TODO: Validate the file
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -87,9 +91,44 @@ namespace DevelopersHub.RealtimeNetworking.Server
                         ip_address VARCHAR(50) DEFAULT '0.0.0.0',
                         client_index INTEGER DEFAULT -1,
                         coins INTEGER DEFAULT 0,
+                        level INTEGER DEFAULT 1,
+                        xp INTEGER DEFAULT 0,
                         login_time DATETIME DEFAULT CURRENT_TIMESTAMP,
                         banned INTEGER DEFAULT 0,
                         ban_reason INTEGER DEFAULT 0
+                        )";
+                command.ExecuteNonQuery();
+
+                command.CommandText = @"
+                        Create Table characters (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        account_id INTEGER DEFAULT 0,
+                        selected INTEGER DEFAULT 0,
+                        prefab_id INTEGER DEFAULT 0,
+                        xp INTEGER DEFAULT 0,
+                        level INTEGER DEFAULT 1,
+                        health INTEGER DEFAULT 100,
+                        speed INTEGER DEFAULT 1,
+                        damage INTEGER DEFAULT 20,
+                        default_name VARCHAR(50) DEFAULT 'No Name',
+                        custom_name VARCHAR(50) DEFAULT ''
+                        )";
+                command.ExecuteNonQuery();
+
+                command.CommandText = @"
+                        Create Table equipments (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        account_id INTEGER DEFAULT 0,
+                        character_id INTEGER DEFAULT 0,
+                        prefab_id INTEGER DEFAULT 0,
+                        level INTEGER DEFAULT 1,
+                        armor INTEGER DEFAULT 10,
+                        speed INTEGER DEFAULT 1,
+                        damage INTEGER DEFAULT 20,
+                        range INTEGER DEFAULT 100,
+                        capacity INTEGER DEFAULT 1,
+                        default_name VARCHAR(50) DEFAULT 'No Name',
+                        custom_name VARCHAR(50) DEFAULT ''
                         )";
                 command.ExecuteNonQuery();
 

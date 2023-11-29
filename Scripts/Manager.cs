@@ -20,7 +20,6 @@ namespace DevelopersHub.RealtimeNetworking.Server
             rooms.Clear();
             Sqlite.Initialize();
             Netcode.Start();
-
         }
 
         public static void OnExit()
@@ -145,7 +144,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 else
                 {
                     games.Add(game);
-                    byte[] bytes = Tools.Compress(Tools.Serialize<Data.Game>(game));
+                    byte[] bytes = Tools.Compress(Tools.Serialize<Data.RuntimeGame>(GetStartGameData(game)));
                     for (int j = 0; j < game.room.players.Count; j++)
                     {
                         Packet packet = new Packet();
@@ -206,7 +205,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 {
                     if (Server.clients[clientID].party.leaderID == Server.clients[clientID].accountID)
                     {
-                        var match = Terminal.OverrideMatchmakingData(gameID, mapID);
+                        var match = Terminal.OverrideMatchmaking(gameID, mapID);
                         if(match.Item1 < 1)
                         {
                             match.Item1 = 1;
@@ -774,7 +773,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
 
         public enum InternalID
         {
-            AUTH = 1, GET_ROOMS = 2, CREATE_ROOM = 3, JOIN_ROOM = 4, LEAVE_ROOM = 5, DELETE_ROOM = 6, ROOM_UPDATED = 7, KICK_FROM_ROOM = 8, STATUS_IN_ROOM = 9, START_ROOM = 10, SYNC_GAME = 11, SET_HOST = 12, DESTROY_OBJECT = 13, CHANGE_OWNER = 14, CHANGE_OWNER_CONFIRM = 15, CREATE_PARTY = 16, INVITE_PARTY = 17, LEAVE_PARTY = 18, KICK_PARTY_MEMBER = 19, JOIN_MATCHMAKING = 20, LEAVE_MATCHMAKING = 21, PARTY_UPDATED = 22, GET_FRIENDS = 23, ADD_FRIEND = 24, REMOVE_FRIEND = 25, ANSWER_FRIEND = 26, GET_PROFILE = 27, ANSWER_PARTY_INVITE = 28, MATCHMAKING_STARTED = 29, MATCHMAKING_STOPPED = 30, LEAVE_GAME = 31, GAME_STARTED = 32, NETCODE_INIT = 33, NETCODE_STARTED = 34, FRIEND_REQUESTS = 35
+            AUTH = 1, GET_ROOMS = 2, CREATE_ROOM = 3, JOIN_ROOM = 4, LEAVE_ROOM = 5, DELETE_ROOM = 6, ROOM_UPDATED = 7, KICK_FROM_ROOM = 8, STATUS_IN_ROOM = 9, START_ROOM = 10, SYNC_GAME = 11, SET_HOST = 12, DESTROY_OBJECT = 13, CHANGE_OWNER = 14, CHANGE_OWNER_CONFIRM = 15, CREATE_PARTY = 16, INVITE_PARTY = 17, LEAVE_PARTY = 18, KICK_PARTY_MEMBER = 19, JOIN_MATCHMAKING = 20, LEAVE_MATCHMAKING = 21, PARTY_UPDATED = 22, GET_FRIENDS = 23, ADD_FRIEND = 24, REMOVE_FRIEND = 25, ANSWER_FRIEND = 26, GET_PROFILE = 27, ANSWER_PARTY_INVITE = 28, MATCHMAKING_STARTED = 29, MATCHMAKING_STOPPED = 30, LEAVE_GAME = 31, GAME_STARTED = 32, NETCODE_INIT = 33, NETCODE_STARTED = 34, FRIEND_REQUESTS = 35, PURCHASE = 36, GET_CHARACTERS = 37, GET_EQUIPMENTS = 38, SET_CHARACTER_SELECTED = 39, CHARACTER_EQUIP = 40, CHARACTER_UNEQUIP = 41
         }
 
         public static void ReceivedPacket(int clientID, Packet packet)
@@ -953,8 +952,285 @@ namespace DevelopersHub.RealtimeNetworking.Server
                         packet.Dispose();
                         _ = LeaveGameAsync(clientID, true, true, true);
                         break;
+                    case InternalID.PURCHASE:
+                        int purCat = packet.ReadInt();
+                        int purID = packet.ReadInt();
+                        int purLvl = packet.ReadInt();
+                        int purCur = packet.ReadInt();
+                        packet.Dispose();
+                        _ = PurchaseAsync(clientID, Server.clients[clientID].accountID, purCat, purID, purLvl, purCur);
+                        break;
+                    case InternalID.GET_CHARACTERS:
+                        long gcID = packet.ReadLong();
+                        bool onlySelected = packet.ReadBool();
+                        bool includeEquipments = packet.ReadBool();
+                        packet.Dispose();
+                        _ = GetCharactersAsync(clientID, gcID, onlySelected, includeEquipments);
+                        break;
+                    case InternalID.GET_EQUIPMENTS:
+                        long geID = packet.ReadLong();
+                        bool geEx = packet.ReadBool();
+                        packet.Dispose();
+                        _ = GetEquipmentsAsync(clientID, geID, geEx);
+                        break;
+                    case InternalID.CHARACTER_EQUIP:
+                        long ceIDc = packet.ReadLong();
+                        long ceIDe = packet.ReadLong();
+                        packet.Dispose();
+                        _ = EquipCharacterAsync(clientID, Server.clients[clientID].accountID, ceIDc, ceIDe);
+                        break;
+                    case InternalID.CHARACTER_UNEQUIP:
+                        long cuIDc = packet.ReadLong();
+                        long cvuIDe = packet.ReadLong();
+                        packet.Dispose();
+                        _ = UnquipCharacterAsync(clientID, Server.clients[clientID].accountID, cuIDc, cvuIDe);
+                        break;
+                    case InternalID.SET_CHARACTER_SELECTED:
+                        long cseIDc = packet.ReadLong();
+                        bool cseISt = packet.ReadBool();
+                        bool cseIOt = packet.ReadBool();
+                        packet.Dispose();
+                        _ = CharacterSelectStatusAsync(clientID, Server.clients[clientID].accountID, cseIDc, cseISt, cseIOt);
+                        break;
                 }
             }
+        }
+
+        private async static Task<int> CharacterSelectStatusAsync(int clientID, long accountID, long characterID, bool selected, bool deselectOthers)
+        {
+            Task<int> task = Task.Run(() =>
+            {
+                return Retry.Do(() => _CharacterSelectStatusAsync(clientID, accountID, characterID, selected, deselectOthers), TimeSpan.FromSeconds(0.1), 5, false);
+            });
+            return await task;
+        }
+
+        private static int _CharacterSelectStatusAsync(int clientID, long accountID, long characterID, bool selected, bool deselectOthers)
+        {
+            int response = 0;
+            using (var connection = Sqlite.connection)
+            {
+                connection.Open();
+                bool isOwner = true;
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = string.Format(@"SELECT id FROM characters WHERE id = {0} AND account_id = {1};", characterID, accountID);
+                    using (var reader = command.ExecuteReader())
+                    {
+                        if (!reader.HasRows)
+                        {
+                            isOwner = false;
+                        }
+                    }
+                }
+                if (isOwner)
+                {
+                    if (deselectOthers)
+                    {
+                        using (var command = connection.CreateCommand())
+                        {
+                            command.CommandText = string.Format(@"UPDATE characters SET selected = 0 WHERE account_id = {0};", accountID);
+                            command.ExecuteNonQuery();
+                        }
+                    }
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = string.Format(@"UPDATE characters SET selected = {0} WHERE id = {1};", selected ? 1 : 0, characterID);
+                        command.ExecuteNonQuery();
+                    }
+                    response = 1;
+                }
+                else
+                {
+                    response = 4;
+                }
+                connection.Close();
+            }
+            Packet packet = new Packet();
+            packet.Write((int)InternalID.SET_CHARACTER_SELECTED);
+            packet.Write(response);
+            SendTCPData(clientID, packet);
+            return response;
+        }
+
+        private async static Task<int> UnquipCharacterAsync(int clientID, long accountID, long characterID, long equipmentID)
+        {
+            Task<int> task = Task.Run(() =>
+            {
+                return Retry.Do(() => _UnquipCharacterAsync(clientID, accountID, characterID, equipmentID), TimeSpan.FromSeconds(0.1), 5, false);
+            });
+            return await task;
+        }
+
+        private static int _UnquipCharacterAsync(int clientID, long accountID, long characterID, long equipmentID)
+        {
+            int response = 0;
+            using (var connection = Sqlite.connection)
+            {
+                connection.Open();
+                bool isOwner = true;
+                /*
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = string.Format(@"SELECT id FROM characters WHERE id = {0} AND account_id = {1};", characterID, accountID);
+                    using (var reader = command.ExecuteReader())
+                    {
+                        if (!reader.HasRows)
+                        {
+                            isOwner = false;
+                        }
+                    }
+                }
+                */
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = string.Format(@"SELECT id FROM equipments WHERE id = {0} AND account_id = {1};", equipmentID, accountID);
+                    using (var reader = command.ExecuteReader())
+                    {
+                        if (!reader.HasRows)
+                        {
+                            isOwner = false;
+                        }
+                    }
+                }
+                if (isOwner)
+                {
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = string.Format(@"UPDATE equipments SET character_id = 0 WHERE id = {0};", equipmentID);
+                        command.ExecuteNonQuery();
+                    }
+                    response = 1;
+                }
+                else
+                {
+                    response = 4;
+                }
+                connection.Close();
+            }
+            Packet packet = new Packet();
+            packet.Write((int)InternalID.CHARACTER_EQUIP);
+            packet.Write(response);
+            SendTCPData(clientID, packet);
+            return response;
+        }
+
+        private async static Task<int> EquipCharacterAsync(int clientID, long accountID, long characterID, long equipmentID)
+        {
+            Task<int> task = Task.Run(() =>
+            {
+                return Retry.Do(() => _EquipCharacterAsync(clientID, accountID, characterID, equipmentID), TimeSpan.FromSeconds(0.1), 5, false);
+            });
+            return await task;
+        }
+
+        private static int _EquipCharacterAsync(int clientID, long accountID, long characterID, long equipmentID)
+        {
+            int response = 0;
+            using (var connection = Sqlite.connection)
+            {
+                connection.Open();
+                bool isOwner = true;
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = string.Format(@"SELECT id FROM characters WHERE id = {0} AND account_id = {1};", characterID, accountID);
+                    using (var reader = command.ExecuteReader())
+                    {
+                        if (!reader.HasRows)
+                        {
+                            isOwner = false;
+                        }
+                    }
+                }
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = string.Format(@"SELECT id FROM equipments WHERE id = {0} AND account_id = {1};", equipmentID, accountID);
+                    using (var reader = command.ExecuteReader())
+                    {
+                        if (!reader.HasRows)
+                        {
+                            isOwner = false;
+                        }
+                    }
+                }
+                if (isOwner)
+                {
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = string.Format(@"UPDATE equipments SET character_id = {0} WHERE id = {1};", characterID, equipmentID);
+                        command.ExecuteNonQuery();
+                    }
+                    response = 1;
+                }
+                else
+                {
+                    response = 4;
+                }
+                connection.Close();
+            }
+            Packet packet = new Packet();
+            packet.Write((int)InternalID.CHARACTER_EQUIP);
+            packet.Write(response);
+            SendTCPData(clientID, packet);
+            return response;
+        }
+
+        private async static Task<int> GetEquipmentsAsync(int clientID, long id, bool excludeEquipped)
+        {
+            Task<int> task = Task.Run(() =>
+            {
+                return Retry.Do(() => _GetEquipmentsAsync(clientID, id, excludeEquipped), TimeSpan.FromSeconds(0.1), 5, false);
+            });
+            return await task;
+        }
+
+        private static int _GetEquipmentsAsync(int clientID, long id, bool excludeEquipped)
+        {
+            List<Data.RuntimeEquipment> equipments = new List<Data.RuntimeEquipment>();
+            int response = 1;
+            using (var connection = Sqlite.connection)
+            {
+                connection.Open();
+                equipments = GetRuntimeEquipments(id, 0, excludeEquipped, connection);
+                connection.Close();
+            }
+            Packet packet = new Packet();
+            packet.Write((int)InternalID.GET_EQUIPMENTS);
+            packet.Write(response);
+            byte[] data = Tools.Compress(Tools.Serialize<List<Data.RuntimeEquipment>>(equipments));
+            packet.Write(data.Length);
+            packet.Write(data);
+            SendTCPData(clientID, packet);
+            return response;
+        }
+
+        private async static Task<int> GetCharactersAsync(int clientID, long id, bool onlySelected, bool includeEquipments)
+        {
+            Task<int> task = Task.Run(() =>
+            {
+                return Retry.Do(() => _GetCharactersAsync(clientID, id, onlySelected, includeEquipments), TimeSpan.FromSeconds(0.1), 5, false);
+            });
+            return await task;
+        }
+
+        private static int _GetCharactersAsync(int clientID, long id, bool onlySelected, bool includeEquipments)
+        {
+            List<Data.RuntimeCharacter> characters = new List<Data.RuntimeCharacter>();
+            int response = 1;
+            using (var connection = Sqlite.connection)
+            {
+                connection.Open();
+                characters = GetRuntimeCharacters(id, onlySelected, includeEquipments, connection);
+                connection.Close();
+            }
+            Packet packet = new Packet();
+            packet.Write((int)InternalID.GET_CHARACTERS);
+            packet.Write(response);
+            byte[] data = Tools.Compress(Tools.Serialize<List<Data.RuntimeCharacter>>(characters));
+            packet.Write(data.Length);
+            packet.Write(data);
+            SendTCPData(clientID, packet);
+            return response;
         }
 
         public static void SendTCPData(int clientID, Packet packet)
@@ -1496,7 +1772,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
             Data.PlayerProfile profile = null;
             using (var command = connection.CreateCommand())
             {
-                command.CommandText = string.Format(@"SELECT username, client_index, coins, login_time FROM accounts WHERE id = {0};", accountID);
+                command.CommandText = string.Format(@"SELECT username, client_index, coins, level, xp, login_time FROM accounts WHERE id = {0};", accountID);
                 using (var reader = command.ExecuteReader())
                 {
                     if (reader.HasRows)
@@ -1508,6 +1784,8 @@ namespace DevelopersHub.RealtimeNetworking.Server
                             profile.username = reader.GetString("username");
                             profile.online = reader.GetInt32("client_index") >= 0;
                             profile.coins = reader.GetInt32("coins");
+                            profile.level = reader.GetInt32("level");
+                            profile.xp = reader.GetInt32("xp");
                             profile.login = reader.GetDateTime("login_time");
                             break;
                         }
@@ -1515,6 +1793,109 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 }
             }
             return profile;
+        }
+
+        public static List<Data.RuntimeCharacter> GetRuntimeCharacters(long accountID, bool onlySelected, bool includeEquipments, Microsoft.Data.Sqlite.SqliteConnection connection)
+        {
+            List<Data.RuntimeCharacter> characters = new List<Data.RuntimeCharacter>();
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = string.Format(@"SELECT id, prefab_id, xp, level, health, speed, damage, selected, default_name, custom_name FROM characters WHERE account_id = {0}{1};", accountID, onlySelected ? " AND selected > 0" : "");
+                using (var reader = command.ExecuteReader())
+                {
+                    if (reader.HasRows)
+                    {
+                        while (reader.Read())
+                        {
+                            Data.RuntimeCharacter character = new Data.RuntimeCharacter();
+                            character.id = reader.GetInt64("id");
+                            character.prefabID = reader.GetInt32("prefab_id");
+                            character.level = reader.GetInt32("level");
+                            character.xp = reader.GetInt32("xp");
+                            character.health = reader.GetInt32("health");
+                            character.speed = reader.GetInt32("speed");
+                            character.damage = reader.GetInt32("damage");
+                            character.selected = reader.GetInt32("selected") > 0;
+                            character.name = reader.GetString("default_name");
+                            character.customName = reader.GetString("custom_name");
+                            characters.Add(character);
+                        }
+                    }
+                }
+            }
+            if (includeEquipments)
+            {
+                for (int i = 0; i < characters.Count; i++)
+                {
+                    characters[i].equipments = GetRuntimeEquipments(accountID, characters[i].id, false, connection);
+                }
+            }
+            return characters;
+        }
+
+        public static List<Data.RuntimeEquipment> GetRuntimeEquipments(long accountID, long characterID, bool excludeEquipped, Microsoft.Data.Sqlite.SqliteConnection connection)
+        {
+            List<Data.RuntimeEquipment> equipments = new List<Data.RuntimeEquipment>();
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = string.Format(@"SELECT id, character_id, prefab_id, range, level, armor, speed, damage, capacity, default_name, custom_name FROM equipments WHERE account_id = {0}{1}{2};", accountID, characterID > 0 ? " AND character_id = " + characterID.ToString() : "", excludeEquipped ? " AND character_id <= 0" : "");
+                using (var reader = command.ExecuteReader())
+                {
+                    if (reader.HasRows)
+                    {
+                        while (reader.Read())
+                        {
+                            Data.RuntimeEquipment equipment = new Data.RuntimeEquipment();
+                            equipment.id = reader.GetInt64("id");
+                            equipment.characterID = reader.GetInt64("character_id");
+                            equipment.prefabID = reader.GetInt32("prefab_id");
+                            equipment.level = reader.GetInt32("level");
+                            equipment.range = reader.GetInt32("range");
+                            equipment.armor = reader.GetInt32("armor");
+                            equipment.speed = reader.GetInt32("speed");
+                            equipment.damage = reader.GetInt32("damage");
+                            equipment.capacity = reader.GetInt32("capacity");
+                            equipment.name = reader.GetString("default_name");
+                            equipment.customName = reader.GetString("custom_name");
+                            equipments.Add(equipment);
+                        }
+                    }
+                }
+            }
+            return equipments;
+        }
+
+        private async static Task<int> PurchaseAsync(int clientID, long accountID, int itemCategory, int itemID, int itemLevel, int currencyID)
+        {
+            Task<int> task = Task.Run(() =>
+            {
+                return Retry.Do(() => _PurchaseAsync(clientID, accountID, itemCategory, itemID, itemLevel, currencyID), TimeSpan.FromSeconds(0.1), 5, false);
+            });
+            return await task;
+        }
+
+        private static int _PurchaseAsync(int clientID, long accountID, int itemCategory, int itemID, int itemLevel, int currencyID)
+        {
+            int result = 0;
+            int price = 0;
+            using (var connection = Sqlite.connection)
+            {
+                connection.Open();
+                var purchase = Terminal.OverridePurchase(accountID, itemCategory, itemID, itemLevel, currencyID, connection);
+                connection.Close();
+                result = (int)purchase.Item1;
+                price = purchase.Item2;
+            }
+            Packet packet = new Packet();
+            packet.Write((int)InternalID.PURCHASE);
+            packet.Write(result);
+            packet.Write(itemCategory);
+            packet.Write(itemID);
+            packet.Write(itemLevel);
+            packet.Write(currencyID);
+            packet.Write(price);
+            SendTCPData(clientID, packet);
+            return 1;
         }
 
         private async static void GetRooms(int id)
@@ -2160,7 +2541,9 @@ namespace DevelopersHub.RealtimeNetworking.Server
                                 games[i].room.players.RemoveAt(j);
                                 if (games[i].room.players.Count <= 0)
                                 {
+                                    Data.Game game = games[i];
                                     games.RemoveAt(i);
+                                    Terminal.OnGameFinished(game);
                                 }
                                 else
                                 {
@@ -2412,7 +2795,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 else
                 {
                     // byte[] playerBytes = Tools.Compress(Tools.Serialize<Data.Player>(Server.clients[clientID].player));
-                    byte[] bytes = Tools.Compress(Tools.Serialize<Data.Game>(game));
+                    byte[] bytes = Tools.Compress(Tools.Serialize<Data.RuntimeGame>(GetStartGameData(game)));
                     for (int i = 0; i < room.players.Count; i++)
                     {
                         if (room.players[i].id == Server.clients[clientID].accountID && !notifyCallerInUpdate) { continue; }
@@ -2430,6 +2813,33 @@ namespace DevelopersHub.RealtimeNetworking.Server
             return response;
         }
         
+        private static Data.RuntimeGame GetStartGameData(Data.Game game)
+        {
+            Data.RuntimeGame runtimeGame = new Data.RuntimeGame();
+            if(game == null)
+            {
+                return null;
+            }
+            runtimeGame.id = game.room.id;
+            runtimeGame.gameID = game.room.gameID;
+            runtimeGame.mapID = game.room.mapID;
+            runtimeGame.players = new List<Data.RuntimePlayer>();
+            using (var connection = Sqlite.connection)
+            {
+                connection.Open();
+                for (int i = 0; i < game.room.players.Count; i++)
+                {
+                    Data.RuntimePlayer player = new Data.RuntimePlayer();
+                    player.id = game.room.players[i].id;
+                    player.team = game.room.players[i].team;
+                    player.username = game.room.players[i].username;
+                    player.characters = GetRuntimeCharacters(player.id, true, true, connection);
+                    runtimeGame.players.Add(player);
+                }
+                connection.Close();
+            }
+            return runtimeGame;
+        }
         #endregion
 
     }
