@@ -1,5 +1,4 @@
-﻿using MySql.Data.MySqlClient;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Numerics;
@@ -977,8 +976,9 @@ namespace DevelopersHub.RealtimeNetworking.Server
                     case InternalID.CHARACTER_EQUIP:
                         long ceIDc = packet.ReadLong();
                         long ceIDe = packet.ReadLong();
+                        bool ceOth = packet.ReadBool();
                         packet.Dispose();
-                        _ = EquipCharacterAsync(clientID, Server.clients[clientID].accountID, ceIDc, ceIDe);
+                        _ = EquipCharacterAsync(clientID, Server.clients[clientID].accountID, ceIDc, ceIDe, ceOth);
                         break;
                     case InternalID.CHARACTER_UNEQUIP:
                         long cuIDc = packet.ReadLong();
@@ -1110,28 +1110,29 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 connection.Close();
             }
             Packet packet = new Packet();
-            packet.Write((int)InternalID.CHARACTER_EQUIP);
+            packet.Write((int)InternalID.CHARACTER_UNEQUIP);
             packet.Write(response);
             SendTCPData(clientID, packet);
             return response;
         }
 
-        private async static Task<int> EquipCharacterAsync(int clientID, long accountID, long characterID, long equipmentID)
+        private async static Task<int> EquipCharacterAsync(int clientID, long accountID, long characterID, long equipmentID, bool unequipOthersOfThisType)
         {
             Task<int> task = Task.Run(() =>
             {
-                return Retry.Do(() => _EquipCharacterAsync(clientID, accountID, characterID, equipmentID), TimeSpan.FromSeconds(0.1), 5, false);
+                return Retry.Do(() => _EquipCharacterAsync(clientID, accountID, characterID, equipmentID, unequipOthersOfThisType), TimeSpan.FromSeconds(0.1), 5, false);
             });
             return await task;
         }
 
-        private static int _EquipCharacterAsync(int clientID, long accountID, long characterID, long equipmentID)
+        private static int _EquipCharacterAsync(int clientID, long accountID, long characterID, long equipmentID, bool unequipOthersOfThisType)
         {
             int response = 0;
             using (var connection = Sqlite.connection)
             {
                 connection.Open();
                 bool isOwner = true;
+                int type = 0;
                 using (var command = connection.CreateCommand())
                 {
                     command.CommandText = string.Format(@"SELECT id FROM characters WHERE id = {0} AND account_id = {1};", characterID, accountID);
@@ -1145,17 +1146,32 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 }
                 using (var command = connection.CreateCommand())
                 {
-                    command.CommandText = string.Format(@"SELECT id FROM equipments WHERE id = {0} AND account_id = {1};", equipmentID, accountID);
+                    command.CommandText = string.Format(@"SELECT type FROM equipments WHERE id = {0} AND account_id = {1};", equipmentID, accountID);
                     using (var reader = command.ExecuteReader())
                     {
                         if (!reader.HasRows)
                         {
                             isOwner = false;
                         }
+                        else
+                        {
+                            while (reader.Read())
+                            {
+                                type = reader.GetInt32("type");
+                            }
+                        }
                     }
                 }
                 if (isOwner)
                 {
+                    if (unequipOthersOfThisType)
+                    {
+                        using (var command = connection.CreateCommand())
+                        {
+                            command.CommandText = string.Format(@"UPDATE equipments SET character_id = 0 WHERE account_id = {0} AND character_id = {1} AND type = {2};", accountID, characterID, type);
+                            command.ExecuteNonQuery();
+                        }
+                    }
                     using (var command = connection.CreateCommand())
                     {
                         command.CommandText = string.Format(@"UPDATE equipments SET character_id = {0} WHERE id = {1};", characterID, equipmentID);
@@ -1274,6 +1290,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
             Data.PlayerProfile profile = null;
             using (var connection = Sqlite.connection)
             {
+                bool signup = false;
                 connection.Open();
                 if (!string.IsNullOrEmpty(username) && !string.IsNullOrEmpty(password))
                 {
@@ -1373,7 +1390,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                             {
                                 // Auth Successful
                                 response = 1;
-                                Terminal.OnSignup(id, connection);
+                                signup = true;
                             }
                         }
                     }
@@ -1391,6 +1408,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                         command.CommandText = string.Format(@"UPDATE accounts SET device_id = '{0}', ip_address = '{1}', client_index = {2}, login_time = CURRENT_TIMESTAMP WHERE id = {3};", device, Server.clients[clientID].ipAddress, clientID, id);
                         command.ExecuteNonQuery();
                     }
+                    Terminal.OnAuthenticated(id, signup, connection);
                 }
                 profile = _GetPlayer(id, connection);
                 connection.Close();
@@ -1957,7 +1975,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 {
                     using (var command = connection.CreateCommand())
                     {
-                        command.CommandText = string.Format(@"INSERT INTO equipments (account_id, character_id, prefab_id, range, level, armor, speed, damage, weight, accuracy, capacity, default_name, custom_name, tag) VALUES({0}, {1}, {2}, {3}, {4}, {5}, {6}, {7}, {8}, {9}, {10}, '{11}', '{12}', '{13}'); SELECT LAST_INSERT_ROWID();", accountID, characterID, equipment.prefabID, equipment.range, equipment.level, equipment.armor, equipment.speed, equipment.damage, equipment.weight, equipment.accuracy, equipment.capacity, equipment.name, equipment.customName, equipment.tag);
+                        command.CommandText = string.Format(@"INSERT INTO equipments (account_id, character_id, prefab_id, range, level, armor, speed, damage, weight, accuracy, capacity, default_name, custom_name, tag, type) VALUES({0}, {1}, {2}, {3}, {4}, {5}, {6}, {7}, {8}, {9}, {10}, '{11}', '{12}', '{13}', {14}); SELECT LAST_INSERT_ROWID();", accountID, characterID, equipment.prefabID, equipment.range, equipment.level, equipment.armor, equipment.speed, equipment.damage, equipment.weight, equipment.accuracy, equipment.capacity, equipment.name, equipment.customName, equipment.tag, equipment.type);
                         id = Convert.ToInt64(command.ExecuteScalar());
                     }
                 }
@@ -2051,7 +2069,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
             List<Data.RuntimeEquipment> equipments = new List<Data.RuntimeEquipment>();
             using (var command = connection.CreateCommand())
             {
-                command.CommandText = string.Format(@"SELECT id, character_id, prefab_id, range, level, armor, speed, damage, weight, accuracy, capacity, default_name, tag, custom_name FROM equipments WHERE account_id = {0}{1}{2};", accountID, characterID > 0 ? " AND character_id = " + characterID.ToString() : "", excludeEquipped ? " AND character_id <= 0" : "");
+                command.CommandText = string.Format(@"SELECT id, character_id, prefab_id, type, range, level, armor, speed, damage, weight, accuracy, capacity, default_name, tag, custom_name FROM equipments WHERE account_id = {0}{1}{2};", accountID, characterID > 0 ? " AND character_id = " + characterID.ToString() : "", excludeEquipped ? " AND character_id <= 0" : "");
                 using (var reader = command.ExecuteReader())
                 {
                     if (reader.HasRows)
@@ -2062,6 +2080,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                             equipment.id = reader.GetInt64("id");
                             equipment.characterID = reader.GetInt64("character_id");
                             equipment.prefabID = reader.GetInt32("prefab_id");
+                            equipment.type = reader.GetInt32("type");
                             equipment.level = reader.GetInt32("level");
                             equipment.range = reader.GetDouble("range");
                             equipment.armor = reader.GetDouble("armor");

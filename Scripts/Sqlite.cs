@@ -135,6 +135,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                         account_id INTEGER DEFAULT 0,
                         character_id INTEGER DEFAULT 0,
                         prefab_id INTEGER DEFAULT 0,
+                        type INTEGER DEFAULT 0,
                         level INTEGER DEFAULT 1,
                         armor REAL DEFAULT 0,
                         speed REAL DEFAULT 0,

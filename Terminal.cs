@@ -11,6 +11,11 @@ namespace DevelopersHub.RealtimeNetworking.Server
         public const string sqlite_database_file_path = @"C:\Database\realtime_networking.db";
         public const string log_directory_path = @"C:\Log\realtime_networking\";
 
+        #region Extensions
+        public const string netcode_server_executable_path = @"C:\Users\Test\Desktop\Server\Netcode.exe";
+        public const int netcode_max_server_life_seconds = 21600;
+        #endregion
+
         public static void Start()
         {
             Console.WriteLine("Server Started.");
@@ -36,7 +41,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
 
         }
 
-        public static void OnSignup(long accountID, Microsoft.Data.Sqlite.SqliteConnection connection)
+        public static void OnAuthenticated(long accountID, bool wasSignedUp, Microsoft.Data.Sqlite.SqliteConnection connection)
         {
 
         }

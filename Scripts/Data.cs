@@ -104,6 +104,7 @@
             public long id = 0;
             public long characterID = 0;
             public int prefabID = 0;
+            public int type = 0;
             public string name = string.Empty;
             public string customName = string.Empty;
             public string tag = string.Empty;

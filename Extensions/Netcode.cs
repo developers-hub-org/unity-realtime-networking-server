@@ -9,9 +9,6 @@ namespace DevelopersHub.RealtimeNetworking.Server
     class Netcode
     {
 
-        private const string server_executable_path = @"C:\Users\Test\Desktop\Server\Netcode.exe";
-        private const int max_server_life_seconds = 21600;
-
         #region Internal
 
         private static int process_check_period = 60;
@@ -25,15 +22,15 @@ namespace DevelopersHub.RealtimeNetworking.Server
             string readyPath = string.Format("{0}Ready{1}", tempPath, Path.DirectorySeparatorChar);
             if (Directory.Exists(resultPath))
             {
-                Directory.Delete(resultPath);
+                Directory.Delete(resultPath, true);
             }
             if (Directory.Exists(loadPath))
             {
-                Directory.Delete(loadPath);
+                Directory.Delete(loadPath, true);
             }
             if (Directory.Exists(readyPath))
             {
-                Directory.Delete(readyPath);
+                Directory.Delete(readyPath, true);
             }
             laast_process_check = DateTime.Now;
         }
@@ -164,7 +161,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                         }
                     }
                 }
-                if(max_server_life_seconds > 0)
+                if(Terminal.netcode_max_server_life_seconds > 0)
                 {
                     double process_check_seconds = (DateTime.Now - laast_process_check).TotalSeconds;
                     if (process_check_seconds >= process_check_period)
@@ -172,7 +169,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                         laast_process_check = DateTime.Now;
                         for (int i = 0; i < games.Count; i++)
                         {
-                            if (games[i] != null && (DateTime.Now - games[i].start).TotalSeconds >= max_server_life_seconds)
+                            if (games[i] != null && (DateTime.Now - games[i].start).TotalSeconds >= Terminal.netcode_max_server_life_seconds)
                             {
                                 KillGameProcess(i);
                             }
@@ -248,7 +245,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                 }
                 if (game.room.players.Count > 0)
                 {
-                    if (File.Exists(server_executable_path))
+                    if (File.Exists(Terminal.netcode_server_executable_path))
                     {
                         try
                         {
@@ -270,7 +267,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
                             string serializedData = Tools.CompressString(Tools.Serialize<Data.RuntimeGame>(data));
                             File.WriteAllText(filePath, serializedData);
                             netcodeGame.process = new Process();
-                            netcodeGame.process.StartInfo.FileName = server_executable_path;
+                            netcodeGame.process.StartInfo.FileName = Terminal.netcode_server_executable_path;
                             netcodeGame.process.StartInfo.WindowStyle = ProcessWindowStyle.Minimized;
                             netcodeGame.process.StartInfo.CreateNoWindow = true;
                             netcodeGame.process.StartInfo.UseShellExecute = false;
