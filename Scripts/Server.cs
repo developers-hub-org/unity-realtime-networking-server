@@ -34,8 +34,11 @@ namespace DevelopersHub.RealtimeNetworking.Server
             tcpListener = new TcpListener(IPAddress.Any, Port);
             tcpListener.Start();
             tcpListener.BeginAcceptTcpClient(OnConnectedTCP, null);
-            udpListener = new UdpClient(Port);
-            udpListener.BeginReceive(OnConnectedUDP, null);
+            if (Terminal.udp_active)
+            {
+                udpListener = new UdpClient(Port);
+                udpListener.BeginReceive(OnConnectedUDP, null);
+            }
             Terminal.Start();
         }
 

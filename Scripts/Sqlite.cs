@@ -1,4 +1,5 @@
-﻿using Microsoft.Data.Sqlite;
+﻿using Google.Protobuf.WellKnownTypes;
+using Microsoft.Data.Sqlite;
 using System;
 using System.IO;
 using System.Threading.Tasks;
@@ -12,7 +13,7 @@ namespace DevelopersHub.RealtimeNetworking.Server
         {
             get
             {
-                return new SqliteConnection("Data Source = " + Terminal.sqlite_database_file_path + "");
+                return new SqliteConnection("Data Source = " + Terminal.sqlite_database_file_path + "; Pooling = True;");
             }
         }
 
@@ -23,10 +24,73 @@ namespace DevelopersHub.RealtimeNetworking.Server
             {
                 CreateTables();
             }
-            Start();
+            ResetAccountsIndex();
+            // Test("A");
+            // Test("B");
+            // Test("C");
+            // Test("D");
+            // Test("E");
+            // Test("F");
+            // Test("G");
+            // Test("H");
+            // Test("I");
+            // Test("J");
         }
 
-        public static void Start()
+        /*
+        private static void Test(string id)
+        {
+            Task task = Task.Run(() =>
+            {
+                int count = 0;
+                while (true)
+                {
+                    using (var _connection = connection)
+                    {
+                        long id = 1;
+                        _connection.Open();
+                        using (var command = _connection.CreateCommand())
+                        {
+                            command.CommandText = string.Format(@"INSERT INTO accounts (username, password) VALUES('{0}', '{1}'); SELECT LAST_INSERT_ROWID();", "whatever", "whatever");
+                            id = Convert.ToInt64(command.ExecuteScalar());
+                        }
+                        using (var command = _connection.CreateCommand())
+                        {
+                            command.CommandText = string.Format(@"SELECT username, client_index, coins, score, level, xp, login_time FROM accounts WHERE id = {0};", id);
+                            using (var reader = command.ExecuteReader())
+                            {
+                                if (reader.HasRows)
+                                {
+                                    while (reader.Read())
+                                    {
+                                        Data.PlayerProfile profile = new Data.PlayerProfile();
+                                        profile.id = id;
+                                        profile.username = reader.GetString("username");
+                                        profile.online = reader.GetInt32("client_index") >= 0;
+                                        profile.coins = reader.GetInt32("coins");
+                                        profile.score = reader.GetInt32("score");
+                                        profile.level = reader.GetInt32("level");
+                                        profile.xp = reader.GetInt32("xp");
+                                        profile.login = reader.GetDateTime("login_time");
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        _connection.Close();
+                    }
+                    count++;
+                    Console.WriteLine(id + " " + count.ToString());
+                    if (count >= 100)
+                    {
+                        break;
+                    }
+                }
+            });
+        }
+        */
+
+        private static void ResetAccountsIndex()
         {
             try
             {
